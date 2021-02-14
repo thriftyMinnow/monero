@@ -32,6 +32,7 @@
 #include <boost/algorithm/string/compare.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include "common/i18n.h"
+#include "cryptonote_config.h"
 
 namespace command_line
 {

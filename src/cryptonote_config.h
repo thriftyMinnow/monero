@@ -65,6 +65,10 @@
 // COIN - number of smallest units in one coin
 #define COIN                                            ((uint64_t)1000000000000) // pow(10, 12)
 
+// Masari's static default ring size
+#define DEFAULT_MIXIN                                   12
+#define DEFAULT_RINGSIZE                                DEFAULT_MIXIN + 1
+
 #define FEE_PER_KB_OLD                                  ((uint64_t)10000000000) // pow(10, 10)
 #define FEE_PER_KB                                      ((uint64_t)2000000000) // 2 * pow(10, 9)
 #define FEE_PER_BYTE                                    ((uint64_t)300000)
