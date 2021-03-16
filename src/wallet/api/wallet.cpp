@@ -60,7 +60,6 @@ namespace Monero {
 
 namespace {
     // copy-pasted from simplewallet
-    static const size_t DEFAULT_MIXIN = 6;
     static const int    DEFAULT_REFRESH_INTERVAL_MILLIS = 1000 * 10;
     // limit maximum refresh interval as one minute
     static const int    MAX_REFRESH_INTERVAL_MILLIS = 1000 * 60 * 1;
@@ -1595,6 +1594,7 @@ PendingTransaction *WalletImpl::createTransaction(const string &dst_addr, const 
     return createTransactionMultDest(std::vector<string> {dst_addr}, payment_id, amount ? (std::vector<uint64_t> {*amount}) : (optional<std::vector<uint64_t>>()), mixin_count, priority, subaddr_account, subaddr_indices);
 }
 
+// NOTE: createSweepUnmixableTransaction not used in Masari; should not be selected or called
 PendingTransaction *WalletImpl::createSweepUnmixableTransaction()
 
 {

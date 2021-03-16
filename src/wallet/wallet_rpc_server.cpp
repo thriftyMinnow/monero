@@ -68,7 +68,7 @@ namespace
   const command_line::arg_descriptor<std::string> arg_wallet_dir = {"wallet-dir", "Directory for newly created wallets"};
   const command_line::arg_descriptor<bool> arg_prompt_for_password = {"prompt-for-password", "Prompts for password when not provided", false};
 
-  constexpr const char default_rpc_username[] = "monero";
+  constexpr const char default_rpc_username[] = "masari";
 
   boost::optional<tools::password_container> password_prompter(const char *prompt, bool verify)
   {
@@ -101,7 +101,7 @@ namespace
     {
       const uint64_t now = time(NULL);
       if (unlock_time > now)
-        entry.suggested_confirmations_threshold = std::max(entry.suggested_confirmations_threshold, (unlock_time - now + DIFFICULTY_TARGET_V2 - 1) / DIFFICULTY_TARGET_V2);
+        entry.suggested_confirmations_threshold = std::max(entry.suggested_confirmations_threshold, (unlock_time - now + DIFFICULTY_TARGET_V8 - 1) / DIFFICULTY_TARGET_V8);
     }
   }
 }
@@ -1375,6 +1375,9 @@ namespace tools
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------------
+/*
+**   NOTE:  on_sweep_dust() not needed in Masari, should not be called/referenced
+*****************************************************************************************
   bool wallet_rpc_server::on_sweep_dust(const wallet_rpc::COMMAND_RPC_SWEEP_DUST::request& req, wallet_rpc::COMMAND_RPC_SWEEP_DUST::response& res, epee::json_rpc::error& er, const connection_context *ctx)
   {
     if (!m_wallet) return not_open(er);
@@ -1399,6 +1402,8 @@ namespace tools
     }
     return true;
   }
+*****************************************************************************************/
+
   //------------------------------------------------------------------------------------------------------------------------------
   bool wallet_rpc_server::on_sweep_all(const wallet_rpc::COMMAND_RPC_SWEEP_ALL::request& req, wallet_rpc::COMMAND_RPC_SWEEP_ALL::response& res, epee::json_rpc::error& er, const connection_context *ctx)
   {

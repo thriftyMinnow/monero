@@ -1124,7 +1124,7 @@ void BlockchainLMDB::remove_tx_outputs(const uint64_t tx_id, const transaction& 
       throw0(DB_ERROR("tx has outputs, but no output indices found"));
   }
 
-  bool is_pseudo_rct = tx.version >= 2 && tx.vin.size() == 1 && tx.vin[0].type() == typeid(txin_gen);
+  bool is_pseudo_rct = tx.vin.size() == 1 && tx.vin[0].type() == typeid(txin_gen);
   for (size_t i = tx.vout.size(); i-- > 0;)
   {
     uint64_t amount = is_pseudo_rct ? 0 : tx.vout[i].amount;
@@ -5478,8 +5478,10 @@ void BlockchainLMDB::migrate_3_4()
         if (vb.mv_size == 0)
           throw0(DB_ERROR("Invalid data from m_blocks"));
         const uint8_t block_major_version = *((const uint8_t*)vb.mv_data);
-        if (block_major_version >= HF_VERSION_LONG_TERM_BLOCK_WEIGHT)
-          past_long_term_weight = true;
+
+// NOTE: this HF "long term block weight" is only in XMR, so commenting out for Masari
+//        if (block_major_version >= HF_VERSION_LONG_TERM_BLOCK_WEIGHT)
+//          past_long_term_weight = true;
       }
 
       uint64_t long_term_block_weight;

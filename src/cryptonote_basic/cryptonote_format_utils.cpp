@@ -497,23 +497,7 @@ namespace cryptonote
   //---------------------------------------------------------------
   bool get_tx_fee(const transaction& tx, uint64_t & fee)
   {
-    if (tx.version > 1)
-    {
-      fee = tx.rct_signatures.txnFee;
-      return true;
-    }
-    uint64_t amount_in = 0;
-    uint64_t amount_out = 0;
-    for(auto& in: tx.vin)
-    {
-      CHECK_AND_ASSERT_MES(in.type() == typeid(txin_to_key), 0, "unexpected type id in transaction");
-      amount_in += boost::get<txin_to_key>(in).amount;
-    }
-    for(auto& o: tx.vout)
-      amount_out += o.amount;
-
-    CHECK_AND_ASSERT_MES(amount_in >= amount_out, false, "transaction spend (" <<amount_in << ") more than it has (" << amount_out << ")");
-    fee = amount_in - amount_out;
+    fee = tx.rct_signatures.txnFee;
     return true;
   }
   //---------------------------------------------------------------
@@ -833,11 +817,6 @@ namespace cryptonote
         << out.target.type().name() << ", expected " << typeid(txout_to_key).name()
         << ", in transaction id=" << get_transaction_hash(tx));
 
-      if (tx.version == 1)
-      {
-        CHECK_AND_NO_ASSERT_MES(0 < out.amount, false, "zero amount output in transaction id=" << get_transaction_hash(tx));
-      }
-
       if(!check_key(boost::get<txout_to_key>(out.target).key))
         return false;
     }
@@ -1070,8 +1049,6 @@ namespace cryptonote
   //---------------------------------------------------------------
   bool calculate_transaction_prunable_hash(const transaction& t, const cryptonote::blobdata_ref *blob, crypto::hash& res)
   {
-    if (t.version == 1)
-      return false;
     const unsigned int unprunable_size = t.unprunable_size;
     if (blob && unprunable_size)
     {
@@ -1114,9 +1091,6 @@ namespace cryptonote
   //---------------------------------------------------------------
   crypto::hash get_pruned_transaction_hash(const transaction& t, const crypto::hash &pruned_data_hash)
   {
-    // v1 transactions hash the entire blob
-    CHECK_AND_ASSERT_THROW_MES(t.version > 1, "Hash for pruned v1 tx cannot be calculated");
-
     // v2 transactions hash different parts together, than hash the set of those hashes
     crypto::hash hashes[3];
 
@@ -1245,6 +1219,7 @@ namespace cryptonote
     return blob;
   }
   //---------------------------------------------------------------
+  // NOTE: XMR v17 adds the blobdata_ref param to this function, and 1st 8 lines of code
   bool calculate_block_hash(const block& b, crypto::hash& res, const blobdata_ref *blob)
   {
     blobdata bd;

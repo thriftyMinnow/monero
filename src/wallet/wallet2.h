@@ -345,7 +345,7 @@ private:
       std::vector<multisig_info> m_multisig_info; // one per other participant
       std::vector<std::pair<uint64_t, crypto::hash>> m_uses;
 
-      bool is_rct() const { return m_rct; }
+      bool is_rct() const { return true; }
       uint64_t amount() const { return m_amount; }
       const crypto::public_key &get_public_key() const { return boost::get<const cryptonote::txout_to_key>(m_tx.vout[m_internal_output_index].target).key; }
 
@@ -493,7 +493,7 @@ private:
       std::vector<size_t> selected_transfers;
       std::vector<uint8_t> extra;
       uint64_t unlock_time;
-      bool use_rct;
+      bool use_rct = true;
       rct::RCTConfig rct_config;
       std::vector<cryptonote::tx_destination_entry> dests; // original setup, does not include change
       uint32_t subaddr_account;   // subaddress account of your wallet to be used in this transfer
@@ -1767,7 +1767,7 @@ private:
     bool m_light_wallet; /* sends view key to daemon for scanning */
     uint64_t m_light_wallet_scanned_block_height;
     uint64_t m_light_wallet_blockchain_height;
-    uint64_t m_light_wallet_per_kb_fee = FEE_PER_KB;
+    uint64_t m_light_wallet_per_kb_fee = DYNAMIC_FEE_PER_KB_BASE_FEE;
     bool m_light_wallet_connected;
     uint64_t m_light_wallet_balance;
     uint64_t m_light_wallet_unlocked_balance;

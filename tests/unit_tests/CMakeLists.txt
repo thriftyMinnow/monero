@@ -50,7 +50,6 @@ set(unit_tests_sources
   epee_utils.cpp
   expect.cpp
   fee.cpp
-  json_serialization.cpp
   get_xtype_from_string.cpp
   hashchain.cpp
   hmac_keccak.cpp
@@ -95,8 +94,7 @@ set(unit_tests_sources
   wipeable_string.cpp
   is_hdd.cpp
   aligned.cpp
-  rpc_version_str.cpp
-  zmq_rpc.cpp)
+  rpc_version_str.cpp)
 
 set(unit_tests_headers
   unit_tests_utils.h)

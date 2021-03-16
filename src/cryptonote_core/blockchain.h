@@ -51,6 +51,7 @@
 #include "string_tools.h"
 #include "rolling_median.h"
 #include "cryptonote_basic/cryptonote_basic.h"
+#include "common/powerof.h"
 #include "common/util.h"
 #include "cryptonote_protocol/cryptonote_protocol_defs.h"
 #include "rpc/core_rpc_server_commands_defs.h"
@@ -594,7 +595,10 @@ namespace cryptonote
      *
      * @return the fee quantized mask
      */
-    static uint64_t get_fee_quantization_mask();
+    static uint64_t get_fee_quantization_mask()
+    {
+      return tools::PowerOf<10, CRYPTONOTE_DISPLAY_DECIMAL_POINT - PER_KB_FEE_QUANTIZATION_DECIMALS>::Value;
+    }
 
     /**
      * @brief get dynamic per kB or byte fee for a given block weight
@@ -1085,6 +1089,7 @@ namespace cryptonote
     // metadata containers
     std::unordered_map<crypto::hash, std::unordered_map<crypto::key_image, std::vector<output_data_t>>> m_scan_table;
     std::unordered_map<crypto::hash, crypto::hash> m_blocks_longhash_table;
+    std::unordered_map<crypto::hash, std::unordered_map<crypto::key_image, bool>> m_check_txin_table;
 
     // Keccak hashes for each block and for fast pow checking
     std::vector<std::pair<crypto::hash, crypto::hash>> m_blocks_hash_of_hashes;

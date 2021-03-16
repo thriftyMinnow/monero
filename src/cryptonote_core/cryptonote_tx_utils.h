@@ -49,7 +49,7 @@ namespace cryptonote
     std::vector<crypto::public_key> real_out_additional_tx_keys; //incoming real tx additional public keys
     size_t real_output_in_tx_index;     //index in transaction outputs vector
     uint64_t amount;                    //money
-    bool rct;                           //true if the output is rct
+    bool rct = true;                    //true if the output is rct (always in MSR)
     rct::key mask;                      //ringct amount mask
     rct::multisig_kLRki multisig_kLRki; //multisig info
 
@@ -173,6 +173,7 @@ namespace boost
       if (ver < 1)
         return;
       a & x.is_subaddress;
+/* NOTE:  Added in XMR v17, not sure if needed for Masari, leaving in for now */ 
       if (ver < 2)
       {
         x.is_integrated = false;
@@ -180,6 +181,7 @@ namespace boost
       }
       a & x.original;
       a & x.is_integrated;
+/* NOTE:   end of block from XMR v17 */
     }
   }
 }

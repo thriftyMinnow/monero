@@ -306,9 +306,9 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
     if (m_nettype ==  FAKECHAIN || m_nettype == STAGENET)
       m_hardfork = new HardFork(*db, 1, 0);
     else if (m_nettype == TESTNET)
-      m_hardfork = new HardFork(*db, 1, testnet_hard_fork_version_1_till);
+      m_hardfork = new HardFork(*db, 1, 0);
     else
-      m_hardfork = new HardFork(*db, 1, mainnet_hard_fork_version_1_till);
+      m_hardfork = new HardFork(*db, 1, 0);
   }
   if (m_nettype == FAKECHAIN)
   {
@@ -341,8 +341,8 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
   if(!m_db->height())
   {
     MINFO("Blockchain not loaded, generating genesis block.");
-    block bl;
-    block_verification_context bvc = {};
+    block bl = boost::value_initialized<block>();
+    block_verification_context bvc = boost::value_initialized<block_verification_context>();
     generate_genesis_block(bl, get_config(m_nettype).GENESIS_TX, get_config(m_nettype).GENESIS_NONCE);
     db_wtxn_guard wtxn_guard(m_db);
     add_new_block(bl, bvc);
@@ -368,7 +368,9 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
 
   // genesis block has no timestamp, could probably change it to have timestamp of 1397818133...
   if(!top_block_timestamp)
-    timestamp_diff = time(NULL) - 1397818133;
+    // NOTE: changing this to match Masari code for rebase 2021
+    //timestamp_diff = time(NULL) - 1397818133;
+    timestamp_diff = time(NULL) - 1341378000;
 
   // create general purpose async service queue
 
@@ -441,6 +443,8 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
     m_long_term_block_weights_cache_rolling_median = epee::misc_utils::rolling_median_t<uint64_t>(m_long_term_block_weights_window);
   }
 
+/* NOTE: Masari uses an improved difficulty algo, so commenting this out for now
+ *******************************************************************************
   bool difficulty_ok;
   uint64_t difficulty_recalc_height;
   std::tie(difficulty_ok, difficulty_recalc_height) = check_difficulty_checkpoints();
@@ -449,6 +453,7 @@ bool Blockchain::init(BlockchainDB* db, const network_type nettype, bool offline
     MERROR("Difficulty drift detected!");
     recalculate_difficulties(difficulty_recalc_height);
   }
+ *******************************************************************************/
 
   {
     db_txn_guard txn_guard(m_db, m_db->is_read_only());
@@ -818,156 +823,217 @@ bool Blockchain::get_block_by_hash(const crypto::hash &h, block &blk, bool *orph
 
   return false;
 }
+
+//------------------------------------------------------------------
+size_t get_difficulty_blocks_count(uint8_t version)
+{
+  LOG_PRINT_L3("Blockchain::" << __func__);
+
+  if (version == 1) {
+    return DIFFICULTY_BLOCKS_COUNT;
+  } else if (version == 2) {
+    return DIFFICULTY_BLOCKS_COUNT_V2;
+  } else if (version < 6) {
+    return DIFFICULTY_BLOCKS_COUNT_V3;
+  } else {
+    return DIFFICULTY_BLOCKS_COUNT_V6;
+  }
+}
+//------------------------------------------------------------------
+
+difficulty_type get_next_difficulty(uint8_t version, std::vector<uint64_t> timestamps, std::vector<difficulty_type> cumulative_difficulties)
+{
+  LOG_PRINT_L3("Blockchain::" << __func__);
+
+  // FIXME: This will fail if fork activation heights are subject to voting
+  size_t target = DIFFICULTY_TARGET;
+  // calculate the difficulty target for the block and return it
+  if (version == 1) {
+    return next_difficulty(timestamps, cumulative_difficulties, target);
+  } else if (version == 2) {
+    return next_difficulty_v2(timestamps, cumulative_difficulties, target);
+  } else if (version == 3) {
+    return next_difficulty_v3(timestamps, cumulative_difficulties, target, false);
+  } else if (version < 6) {
+    return next_difficulty_v3(timestamps, cumulative_difficulties, target, true);
+  } else {
+    return next_difficulty_v6(timestamps, cumulative_difficulties, version);
+  }
+}
+
 //------------------------------------------------------------------
 // This function aggregates the cumulative difficulties and timestamps of the
 // last DIFFICULTY_BLOCKS_COUNT blocks and passes them to next_difficulty,
 // returning the result of that call.  Ignores the genesis block, and can use
 // less blocks than desired if there aren't enough.
+//
+// NOTE: Masari has its own difficulty algorithm, so keeping latest Masari version
 difficulty_type Blockchain::get_difficulty_for_next_block()
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
 
-  std::stringstream ss;
-  bool print = false;
+///// commented out from XMR v17  /////
+//  std::stringstream ss;
+//  bool print = false;
+//
+//  int done = 0;
+//  ss << "get_difficulty_for_next_block: height " << m_db->height() << std::endl;
 
-  int done = 0;
-  ss << "get_difficulty_for_next_block: height " << m_db->height() << std::endl;
   if (m_fixed_difficulty)
   {
     return m_db->height() ? m_fixed_difficulty : 1;
   }
 
-start:
-  difficulty_type D = 0;
-
-  crypto::hash top_hash = get_tail_id();
-  {
-    CRITICAL_REGION_LOCAL(m_difficulty_lock);
-    // we can call this without the blockchain lock, it might just give us
-    // something a bit out of date, but that's fine since anything which
-    // requires the blockchain lock will have acquired it in the first place,
-    // and it will be unlocked only when called from the getinfo RPC
-    ss << "Locked, tail id " << top_hash << ", cached is " << m_difficulty_for_next_block_top_hash << std::endl;
-    if (top_hash == m_difficulty_for_next_block_top_hash)
-    {
-      ss << "Same, using cached diff " << m_difficulty_for_next_block << std::endl;
-      D = m_difficulty_for_next_block;
-    }
-  }
+/////  commented out from XMR v17  /////  
+//start:
+//  difficulty_type D = 0;
+//
+//  crypto::hash top_hash = get_tail_id();
+//  {
+//    CRITICAL_REGION_LOCAL(m_difficulty_lock);
+//    // we can call this without the blockchain lock, it might just give us
+//    // something a bit out of date, but that's fine since anything which
+//    // requires the blockchain lock will have acquired it in the first place,
+//    // and it will be unlocked only when called from the getinfo RPC
+//    ss << "Locked, tail id " << top_hash << ", cached is " << m_difficulty_for_next_block_top_hash << std::endl;
+//    if (top_hash == m_difficulty_for_next_block_top_hash)
+//    {
+//      ss << "Same, using cached diff " << m_difficulty_for_next_block << std::endl;
+//      D = m_difficulty_for_next_block;
+//    }
+//  }
 
   CRITICAL_REGION_LOCAL(m_blockchain_lock);
   std::vector<uint64_t> timestamps;
   std::vector<difficulty_type> difficulties;
-  uint64_t height;
-  auto new_top_hash = get_tail_id(height); // get it again now that we have the lock
-  ++height;
-  if (!(new_top_hash == top_hash)) D=0;
-  ss << "Re-locked, height " << height << ", tail id " << new_top_hash << (new_top_hash == top_hash ? "" : " (different)") << std::endl;
-  top_hash = new_top_hash;
+  auto height = m_db->height();
+  uint8_t version = get_current_hard_fork_version();
+  size_t difficulty_blocks_count = get_difficulty_blocks_count(version);
+
+/////  commented out from XMR v17  /////  
+//  uint64_t height;
+//  auto new_top_hash = get_tail_id(height); // get it again now that we have the lock
+//  ++height;
+//  if (!(new_top_hash == top_hash)) D=0;
+//  ss << "Re-locked, height " << height << ", tail id " << new_top_hash << (new_top_hash == top_hash ? "" : " (different)") << std::endl;
+//  top_hash = new_top_hash;
 
   // ND: Speedup
   // 1. Keep a list of the last 735 (or less) blocks that is used to compute difficulty,
   //    then when the next block difficulty is queried, push the latest height data and
   //    pop the oldest one from the list. This only requires 1x read per height instead
   //    of doing 735 (DIFFICULTY_BLOCKS_COUNT).
-  bool check = false;
-  if (m_reset_timestamps_and_difficulties_height)
-    m_timestamps_and_difficulties_height = 0;
-  if (m_timestamps_and_difficulties_height != 0 && ((height - m_timestamps_and_difficulties_height) == 1) && m_timestamps.size() >= DIFFICULTY_BLOCKS_COUNT)
+
+/////  commented out from XMR v17  /////  
+//  bool check = false;
+//  if (m_reset_timestamps_and_difficulties_height)
+//    m_timestamps_and_difficulties_height = 0;
+
+  if (m_timestamps_and_difficulties_height != 0 && ((height - m_timestamps_and_difficulties_height) == 1) && m_timestamps.size() >= difficulty_blocks_count)
   {
     uint64_t index = height - 1;
     m_timestamps.push_back(m_db->get_block_timestamp(index));
     m_difficulties.push_back(m_db->get_block_cumulative_difficulty(index));
 
-    while (m_timestamps.size() > DIFFICULTY_BLOCKS_COUNT)
+    while (m_timestamps.size() > difficulty_blocks_count)
       m_timestamps.erase(m_timestamps.begin());
-    while (m_difficulties.size() > DIFFICULTY_BLOCKS_COUNT)
+    while (m_difficulties.size() > difficulty_blocks_count)
       m_difficulties.erase(m_difficulties.begin());
 
     m_timestamps_and_difficulties_height = height;
     timestamps = m_timestamps;
     difficulties = m_difficulties;
-    check = true;
-  }
-  //else
-  std::vector<uint64_t> timestamps_from_cache = timestamps;
-  std::vector<difficulty_type> difficulties_from_cache = difficulties;
+    
+/////  commented out from XMR v17  /////  
+//    check = true;
+//  }
+//  //else
+//  std::vector<uint64_t> timestamps_from_cache = timestamps;
+//  std::vector<difficulty_type> difficulties_from_cache = difficulties;
 
+  }
+  else
   {
-    uint64_t offset = height - std::min <uint64_t> (height, static_cast<uint64_t>(DIFFICULTY_BLOCKS_COUNT));
+    uint64_t offset = height - std::min <uint64_t> (height, static_cast<uint64_t>(difficulty_blocks_count));
     if (offset == 0)
       ++offset;
 
     timestamps.clear();
     difficulties.clear();
-    if (height > offset)
-    {
-      timestamps.reserve(height - offset);
-      difficulties.reserve(height - offset);
-    }
-    ss << "Looking up " << (height - offset) << " from " << offset << std::endl;
+/////  commented out from XMR v17  /////  
+//    if (height > offset)
+//    {
+//      timestamps.reserve(height - offset);
+//      difficulties.reserve(height - offset);
+//    }
+//    ss << "Looking up " << (height - offset) << " from " << offset << std::endl;
+
     for (; offset < height; offset++)
     {
       timestamps.push_back(m_db->get_block_timestamp(offset));
       difficulties.push_back(m_db->get_block_cumulative_difficulty(offset));
     }
 
-    if (check) if (timestamps != timestamps_from_cache || difficulties !=difficulties_from_cache)
-    {
-      ss << "Inconsistency XXX:" << std::endl;
-      ss << "top hash: "<<top_hash << std::endl;
-      ss << "timestamps: " << timestamps_from_cache.size() << " from cache, but " << timestamps.size() << " without" << std::endl;
-      ss << "difficulties: " << difficulties_from_cache.size() << " from cache, but " << difficulties.size() << " without" << std::endl;
-      ss << "timestamps_from_cache:" << std::endl; for (const auto &v :timestamps_from_cache) ss << "  " << v << std::endl;
-      ss << "timestamps:" << std::endl; for (const auto &v :timestamps) ss << "  " << v << std::endl;
-      ss << "difficulties_from_cache:" << std::endl; for (const auto &v :difficulties_from_cache) ss << "  " << v << std::endl;
-      ss << "difficulties:" << std::endl; for (const auto &v :difficulties) ss << "  " << v << std::endl;
-
-      uint64_t dbh = m_db->height();
-      uint64_t sh = dbh < 10000 ? 0 : dbh - 10000;
-      ss << "History from -10k at :" << dbh << ", from " << sh << std::endl;
-      for (uint64_t h = sh; h < dbh; ++h)
-      {
-        uint64_t ts = m_db->get_block_timestamp(h);
-        difficulty_type d = m_db->get_block_cumulative_difficulty(h);
-        ss << "  " << h << " " << ts << " " << d << std::endl;
-      }
-      print = true;
-    }
+/////  commented out from XMR v17  /////  
+//    if (check) if (timestamps != timestamps_from_cache || difficulties !=difficulties_from_cache)
+//    {
+//      ss << "Inconsistency XXX:" << std::endl;
+//      ss << "top hash: "<<top_hash << std::endl;
+//      ss << "timestamps: " << timestamps_from_cache.size() << " from cache, but " << timestamps.size() << " without" << std::endl;
+//      ss << "difficulties: " << difficulties_from_cache.size() << " from cache, but " << difficulties.size() << " without" << std::endl;
+//      ss << "timestamps_from_cache:" << std::endl; for (const auto &v :timestamps_from_cache) ss << "  " << v << std::endl;
+//      ss << "timestamps:" << std::endl; for (const auto &v :timestamps) ss << "  " << v << std::endl;
+//      ss << "difficulties_from_cache:" << std::endl; for (const auto &v :difficulties_from_cache) ss << "  " << v << std::endl;
+//      ss << "difficulties:" << std::endl; for (const auto &v :difficulties) ss << "  " << v << std::endl;
+//
+//      uint64_t dbh = m_db->height();
+//      uint64_t sh = dbh < 10000 ? 0 : dbh - 10000;
+//      ss << "History from -10k at :" << dbh << ", from " << sh << std::endl;
+//      for (uint64_t h = sh; h < dbh; ++h)
+//      {
+//        uint64_t ts = m_db->get_block_timestamp(h);
+//        difficulty_type d = m_db->get_block_cumulative_difficulty(h);
+//        ss << "  " << h << " " << ts << " " << d << std::endl;
+//      }
+//      print = true;
+//    }
     m_timestamps_and_difficulties_height = height;
     m_timestamps = timestamps;
     m_difficulties = difficulties;
   }
 
-  size_t target = get_difficulty_target();
-  difficulty_type diff = next_difficulty(timestamps, difficulties, target);
+/////  commented out from XMR v17  /////
+//  size_t target = get_difficulty_target();
+//  difficulty_type diff = next_difficulty(timestamps, difficulties, target);
+//
+//  CRITICAL_REGION_LOCAL1(m_difficulty_lock);
+//  m_difficulty_for_next_block_top_hash = top_hash;
+//  m_difficulty_for_next_block = diff;
+//  if (D && D != diff)
+//  {
+//    ss << "XXX Mismatch at " << height << "/" << top_hash << "/" << get_tail_id() << ": cached " << D << ", real " << diff << std::endl;
+//    print = true;
+//  }
+//
+//  ++done;
+//  if (done == 1 && D && D != diff)
+//  {
+//    print = true;
+//    ss << "Might be a race. Let's see what happens if we try again..." << std::endl;
+//    epee::misc_utils::sleep_no_w(100);
+//    goto start;
+//  }
+//  ss << "Diff for " << top_hash << ": " << diff << std::endl;
+//  if (print)
+//  {
+//    MGINFO("START DUMP");
+//    MGINFO(ss.str());
+//    MGINFO("END DUMP");
+//    MGINFO("Please send moneromooo on Freenode the contents of this log, from a couple dozen lines before START DUMP to END DUMP");
+//  }
+//  return diff;
 
-  CRITICAL_REGION_LOCAL1(m_difficulty_lock);
-  m_difficulty_for_next_block_top_hash = top_hash;
-  m_difficulty_for_next_block = diff;
-  if (D && D != diff)
-  {
-    ss << "XXX Mismatch at " << height << "/" << top_hash << "/" << get_tail_id() << ": cached " << D << ", real " << diff << std::endl;
-    print = true;
-  }
-
-  ++done;
-  if (done == 1 && D && D != diff)
-  {
-    print = true;
-    ss << "Might be a race. Let's see what happens if we try again..." << std::endl;
-    epee::misc_utils::sleep_no_w(100);
-    goto start;
-  }
-  ss << "Diff for " << top_hash << ": " << diff << std::endl;
-  if (print)
-  {
-    MGINFO("START DUMP");
-    MGINFO(ss.str());
-    MGINFO("END DUMP");
-    MGINFO("Please send moneromooo on Freenode the contents of this log, from a couple dozen lines before START DUMP to END DUMP");
-  }
-  return diff;
+  return get_next_difficulty(version, timestamps, difficulties);
 }
 //------------------------------------------------------------------
 std::pair<bool, uint64_t> Blockchain::check_difficulty_checkpoints() const
@@ -1017,7 +1083,7 @@ size_t Blockchain::recalculate_difficulties(boost::optional<uint64_t> start_heig
   std::vector<difficulty_type> new_cumulative_difficulties;
   for (uint64_t height = start_height; height <= top_height; ++height)
   {
-    size_t target = get_ideal_hard_fork_version(height) < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+    size_t target = get_ideal_hard_fork_version(height) < 8 ? DIFFICULTY_TARGET : DIFFICULTY_TARGET_V8;
     difficulty_type recalculated_diff = next_difficulty(timestamps, difficulties, target);
 
     boost::multiprecision::uint256_t recalculated_cum_diff_256 = boost::multiprecision::uint256_t(recalculated_diff) + last_cum_diff;
@@ -1260,16 +1326,18 @@ difficulty_type Blockchain::get_next_difficulty_for_alternative_chain(const std:
   LOG_PRINT_L3("Blockchain::" << __func__);
   std::vector<uint64_t> timestamps;
   std::vector<difficulty_type> cumulative_difficulties;
+  uint8_t version = get_current_hard_fork_version();
+  size_t difficulty_blocks_count = get_difficulty_blocks_count(version);
 
   // if the alt chain isn't long enough to calculate the difficulty target
   // based on its blocks alone, need to get more blocks from the main chain
-  if(alt_chain.size()< DIFFICULTY_BLOCKS_COUNT)
+  if(alt_chain.size()< difficulty_blocks_count)
   {
     CRITICAL_REGION_LOCAL(m_blockchain_lock);
 
     // Figure out start and stop offsets for main chain blocks
     size_t main_chain_stop_offset = alt_chain.size() ? alt_chain.front().height : bei.height;
-    size_t main_chain_count = DIFFICULTY_BLOCKS_COUNT - std::min(static_cast<size_t>(DIFFICULTY_BLOCKS_COUNT), alt_chain.size());
+    size_t main_chain_count = difficulty_blocks_count - std::min(static_cast<size_t>(difficulty_blocks_count), alt_chain.size());
     main_chain_count = std::min(main_chain_count, main_chain_stop_offset);
     size_t main_chain_start_offset = main_chain_stop_offset - main_chain_count;
 
@@ -1284,7 +1352,7 @@ difficulty_type Blockchain::get_next_difficulty_for_alternative_chain(const std:
     }
 
     // make sure we haven't accidentally grabbed too many blocks...maybe don't need this check?
-    CHECK_AND_ASSERT_MES((alt_chain.size() + timestamps.size()) <= DIFFICULTY_BLOCKS_COUNT, false, "Internal error, alt_chain.size()[" << alt_chain.size() << "] + vtimestampsec.size()[" << timestamps.size() << "] NOT <= DIFFICULTY_WINDOW[]" << DIFFICULTY_BLOCKS_COUNT);
+    CHECK_AND_ASSERT_MES((alt_chain.size() + timestamps.size()) <= difficulty_blocks_count, false, "Internal error, alt_chain.size()[" << alt_chain.size() << "] + vtimestampsec.size()[" << timestamps.size() << "] NOT <= DIFFICULTY_WINDOW[]" << difficulty_blocks_count);
 
     for (const auto &bei : alt_chain)
     {
@@ -1296,8 +1364,8 @@ difficulty_type Blockchain::get_next_difficulty_for_alternative_chain(const std:
   // and timestamps from it alone
   else
   {
-    timestamps.resize(static_cast<size_t>(DIFFICULTY_BLOCKS_COUNT));
-    cumulative_difficulties.resize(static_cast<size_t>(DIFFICULTY_BLOCKS_COUNT));
+    timestamps.resize(static_cast<size_t>(difficulty_blocks_count));
+    cumulative_difficulties.resize(static_cast<size_t>(difficulty_blocks_count));
     size_t count = 0;
     size_t max_i = timestamps.size()-1;
     // get difficulties and timestamps from most recent blocks in alt chain
@@ -1306,16 +1374,19 @@ difficulty_type Blockchain::get_next_difficulty_for_alternative_chain(const std:
       timestamps[max_i - count] = bei.bl.timestamp;
       cumulative_difficulties[max_i - count] = bei.cumulative_difficulty;
       count++;
-      if(count >= DIFFICULTY_BLOCKS_COUNT)
+      if(count >= difficulty_blocks_count)
         break;
     }
   }
 
-  // FIXME: This will fail if fork activation heights are subject to voting
-  size_t target = get_ideal_hard_fork_version(bei.height) < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+//  Commented out from XMR v17
+//  // FIXME: This will fail if fork activation heights are subject to voting
+//  size_t target = get_ideal_hard_fork_version(bei.height) < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+//
+//  // calculate the difficulty target for the block and return it
+//  return next_difficulty(timestamps, cumulative_difficulties, target);
 
-  // calculate the difficulty target for the block and return it
-  return next_difficulty(timestamps, cumulative_difficulties, target);
+  return get_next_difficulty(version, timestamps, cumulative_difficulties);
 }
 //------------------------------------------------------------------
 // This function does a sanity check on basic things that all miner
@@ -1328,13 +1399,16 @@ bool Blockchain::prevalidate_miner_transaction(const block& b, uint64_t height, 
   LOG_PRINT_L3("Blockchain::" << __func__);
   CHECK_AND_ASSERT_MES(b.miner_tx.vin.size() == 1, false, "coinbase transaction in the block has no inputs");
   CHECK_AND_ASSERT_MES(b.miner_tx.vin[0].type() == typeid(txin_gen), false, "coinbase transaction in the block has the wrong type");
-  CHECK_AND_ASSERT_MES(b.miner_tx.version > 1 || hf_version < HF_VERSION_MIN_V2_COINBASE_TX, false, "Invalid coinbase transaction version");
-
-  // for v2 txes (ringct), we only accept empty rct signatures for miner transactions,
-  if (hf_version >= HF_VERSION_REJECT_SIGS_IN_COINBASE && b.miner_tx.version >= 2)
-  {
-    CHECK_AND_ASSERT_MES(b.miner_tx.rct_signatures.type == rct::RCTTypeNull, false, "RingCT signatures not allowed in coinbase transactions");
-  }
+// NOTE: Commenting out additional checks in XMR v17
+//////////////////////////////////////////////////////
+//  CHECK_AND_ASSERT_MES(b.miner_tx.version > 1 || hf_version < HF_VERSION_MIN_V2_COINBASE_TX, false, "Invalid coinbase transaction version");
+//
+//  // for v2 txes (ringct), we only accept empty rct signatures for miner transactions,
+//  if (hf_version >= HF_VERSION_REJECT_SIGS_IN_COINBASE && b.miner_tx.version >= 2)
+//  {
+//    CHECK_AND_ASSERT_MES(b.miner_tx.rct_signatures.type == rct::RCTTypeNull, false, "RingCT signatures not allowed in coinbase transactions");
+//  }
+/////////////////////////////////////////////////////
 
   if(boost::get<txin_gen>(b.miner_tx.vin[0]).height != height)
   {
@@ -1361,32 +1435,24 @@ bool Blockchain::prevalidate_miner_transaction(const block& b, uint64_t height, 
 bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_block_weight, uint64_t fee, uint64_t& base_reward, uint64_t already_generated_coins, bool &partial_block_reward, uint8_t version)
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
+
+  if (!b.miner_tx.vout.size())
+  {
+    MERROR_VER("Miner transaction cannot be empty");
+    return false;
+  }
+
   //validate reward
   uint64_t money_in_use = 0;
   for (auto& o: b.miner_tx.vout)
     money_in_use += o.amount;
+
   partial_block_reward = false;
 
-  if (version == 3) {
-    for (auto &o: b.miner_tx.vout) {
-      if (!is_valid_decomposed_amount(o.amount)) {
-        MERROR_VER("miner tx output " << print_money(o.amount) << " is not a valid decomposed amount");
-        return false;
-      }
-    }
-  }
-
   uint64_t median_weight;
-  if (version >= HF_VERSION_EFFECTIVE_SHORT_TERM_MEDIAN_IN_PENALTY)
-  {
-    median_weight = m_current_block_cumul_weight_median;
-  }
-  else
-  {
-    std::vector<uint64_t> last_blocks_weights;
-    get_last_n_blocks_weights(last_blocks_weights, CRYPTONOTE_REWARD_BLOCKS_WINDOW);
-    median_weight = epee::misc_utils::median(last_blocks_weights);
-  }
+  std::vector<uint64_t> last_blocks_weights;
+  get_last_n_blocks_weights(last_blocks_weights, CRYPTONOTE_REWARD_BLOCKS_WINDOW);
+  median_weight = epee::misc_utils::median(last_blocks_weights);
   if (!get_block_reward(median_weight, cumulative_block_weight, already_generated_coins, base_reward, version))
   {
     MERROR_VER("block weight " << cumulative_block_weight << " is bigger than allowed for this blockchain");
@@ -1397,24 +1463,13 @@ bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_bl
     MERROR_VER("coinbase transaction spend too much money (" << print_money(money_in_use) << "). Block reward is " << print_money(base_reward + fee) << "(" << print_money(base_reward) << "+" << print_money(fee) << "), cumulative_block_weight " << cumulative_block_weight);
     return false;
   }
-  // From hard fork 2 till 12, we allow a miner to claim less block reward than is allowed, in case a miner wants less dust
-  if (version < 2 || version >= HF_VERSION_EXACT_COINBASE)
+  if (version >= 1)
   {
     if(base_reward + fee != money_in_use)
     {
       MDEBUG("coinbase transaction doesn't use full amount of block reward:  spent: " << money_in_use << ",  block reward " << base_reward + fee << "(" << base_reward << "+" << fee << ")");
       return false;
     }
-  }
-  else
-  {
-    // from hard fork 2, since a miner can claim less than the full block reward, we update the base_reward
-    // to show the amount of coins that were actually generated, the remainder will be pushed back for later
-    // emission. This modifies the emission curve very slightly.
-    CHECK_AND_ASSERT_MES(money_in_use - fee <= base_reward, false, "base reward calculation bug");
-    if(base_reward + fee != money_in_use)
-      partial_block_reward = true;
-    base_reward = money_in_use - fee;
   }
   return true;
 }
@@ -1672,19 +1727,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
     {
       LOG_ERROR("Creating block template: error: invalid transaction weight");
     }
-    if (cur_tx.tx.version == 1)
-    {
-      uint64_t inputs_amount;
-      if (!get_inputs_money_amount(cur_tx.tx, inputs_amount))
-      {
-        LOG_ERROR("Creating block template: error: cannot get inputs amount");
-      }
-      else if (cur_tx.fee != inputs_amount - get_outs_money_amount(cur_tx.tx))
-      {
-        LOG_ERROR("Creating block template: error: invalid fee");
-      }
-    }
-    else
+    if (cur_tx.tx.version >= 1)
     {
       if (cur_tx.fee != cur_tx.tx.rct_signatures.txnFee)
       {
@@ -1713,8 +1756,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
    */
   //make blocks coin-base tx looks close to real coinbase tx to get truthful blob weight
   uint8_t hf_version = b.major_version;
-  size_t max_outs = hf_version >= 4 ? 1 : 11;
-  bool r = construct_miner_tx(height, median_weight, already_generated_coins, txs_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version);
+  bool r = construct_miner_tx(height, median_weight, already_generated_coins, txs_weight, fee, miner_address, b.miner_tx, ex_nonce, 0, hf_version);
   CHECK_AND_ASSERT_MES(r, false, "Failed to construct miner tx, first chance");
   size_t cumulative_weight = txs_weight + get_transaction_weight(b.miner_tx);
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
@@ -1723,7 +1765,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
 #endif
   for (size_t try_count = 0; try_count != 10; ++try_count)
   {
-    r = construct_miner_tx(height, median_weight, already_generated_coins, cumulative_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version);
+    r = construct_miner_tx(height, median_weight, already_generated_coins, cumulative_weight, fee, miner_address, b.miner_tx, ex_nonce, 0, hf_version);
 
     CHECK_AND_ASSERT_MES(r, false, "Failed to construct miner tx, second chance");
     size_t coinbase_weight = get_transaction_weight(b.miner_tx);
@@ -1786,11 +1828,12 @@ bool Blockchain::complete_timestamps_vector(uint64_t start_top_height, std::vect
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
 
-  if(timestamps.size() >= BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW)
+  size_t blockchain_timestamp_check_window = get_current_hard_fork_version() < 2 ? BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW : BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V2;
+  if(timestamps.size() >= blockchain_timestamp_check_window)
     return true;
 
   CRITICAL_REGION_LOCAL(m_blockchain_lock);
-  size_t need_elements = BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW - timestamps.size();
+  size_t need_elements = blockchain_timestamp_check_window - timestamps.size();
   CHECK_AND_ASSERT_MES(start_top_height < m_db->height(), false, "internal error: passed start_height not < " << " m_db->height() -- " << start_top_height << " >= " << m_db->height());
   size_t stop_offset = start_top_height > need_elements ? start_top_height - need_elements : 0;
   timestamps.reserve(timestamps.size() + start_top_height - stop_offset);
@@ -2962,22 +3005,9 @@ bool Blockchain::check_tx_outputs(const transaction& tx, tx_verification_context
 
   const uint8_t hf_version = m_hardfork->get_current_version();
 
-  // from hard fork 2, we forbid dust and compound outputs
-  if (hf_version >= 2) {
-    for (auto &o: tx.vout) {
-      if (tx.version == 1)
-      {
-        if (!is_valid_decomposed_amount(o.amount)) {
-          tvc.m_invalid_output = true;
-          return false;
-        }
-      }
-    }
-  }
-
-  // in a v2 tx, all outputs must have 0 amount
-  if (hf_version >= 3) {
-    if (tx.version >= 2) {
+  // all outputs must have 0 amount (in if-true clauses for easier merges)
+  if (hf_version >= 1) {
+    if (tx.version >= 1) {
       for (auto &o: tx.vout) {
         if (o.amount != 0) {
           tvc.m_invalid_output = true;
@@ -2987,8 +3017,8 @@ bool Blockchain::check_tx_outputs(const transaction& tx, tx_verification_context
     }
   }
 
-  // from v4, forbid invalid pubkeys
-  if (hf_version >= 4) {
+  // forbid invalid pubkeys
+  if (hf_version >= 1) {
     for (const auto &o: tx.vout) {
       if (o.target.type() == typeid(txout_to_key)) {
         const txout_to_key& out_to_key = boost::get<txout_to_key>(o.target);
@@ -3002,7 +3032,7 @@ bool Blockchain::check_tx_outputs(const transaction& tx, tx_verification_context
 
   // from v8, allow bulletproofs
   if (hf_version < 8) {
-    if (tx.version >= 2) {
+    if (tx.version >= 1) {
       const bool bulletproof = rct::is_rct_bulletproof(tx.rct_signatures.type);
       if (bulletproof || !tx.rct_signatures.p.bulletproofs.empty())
       {
@@ -3013,9 +3043,13 @@ bool Blockchain::check_tx_outputs(const transaction& tx, tx_verification_context
     }
   }
 
+/* NOTE: COMMENTED OUT this block
+**       Not sure how/if to implement the below in Masari as part of 2021 rebase
+**       Will need to handle the correct PoW changes in the next hard fork...
+***********************************************************************************
   // from v9, forbid borromean range proofs
   if (hf_version > 8) {
-    if (tx.version >= 2) {
+    if (tx.version >= 1) {
       const bool borromean = rct::is_rct_borromean(tx.rct_signatures.type);
       if (borromean)
       {
@@ -3085,7 +3119,8 @@ bool Blockchain::check_tx_outputs(const transaction& tx, tx_verification_context
       }
     }
   }
-
+***********************************************************************************
+***********************************************************************************/
   return true;
 }
 //------------------------------------------------------------------
@@ -3103,7 +3138,6 @@ bool Blockchain::have_tx_keyimges_as_spent(const transaction &tx) const
 bool Blockchain::expand_transaction_2(transaction &tx, const crypto::hash &tx_prefix_hash, const std::vector<std::vector<rct::ctkey>> &pubkeys) const
 {
   PERF_TIMER(expand_transaction_2);
-  CHECK_AND_ASSERT_MES(tx.version == 2, false, "Transaction version is not 2");
 
   rct::rctSig &rv = tx.rct_signatures;
 
@@ -3217,102 +3251,30 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
 
   const uint8_t hf_version = m_hardfork->get_current_version();
 
-  if (hf_version >= HF_VERSION_MIN_2_OUTPUTS)
-  {
-    if (tx.version >= 2)
-    {
-      if (tx.vout.size() < 2)
-      {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has fewer than two outputs");
-        tvc.m_too_few_outputs = true;
-        return false;
-      }
-    }
-  }
-
   // from hard fork 2, we require mixin at least 2 unless one output cannot mix with 2 others
   // if one output cannot mix with 2 others, we accept at most 1 output that can mix
-  if (hf_version >= 2)
+  if (hf_version >= 1)
   {
-    size_t n_unmixable = 0, n_mixable = 0;
-    size_t min_actual_mixin = std::numeric_limits<size_t>::max();
-    size_t max_actual_mixin = 0;
-    const size_t min_mixin = hf_version >= HF_VERSION_MIN_MIXIN_10 ? 10 : hf_version >= HF_VERSION_MIN_MIXIN_6 ? 6 : hf_version >= HF_VERSION_MIN_MIXIN_4 ? 4 : 2;
     for (const auto& txin : tx.vin)
     {
-      // non txin_to_key inputs will be rejected below
-      if (txin.type() == typeid(txin_to_key))
+      if (boost::get<txin_to_key>(txin).key_offsets.size() != DEFAULT_RINGSIZE)
       {
-        const txin_to_key& in_to_key = boost::get<txin_to_key>(txin);
-        if (in_to_key.amount == 0)
-        {
-          // always consider rct inputs mixable. Even if there's not enough rct
-          // inputs on the chain to mix with, this is going to be the case for
-          // just a few blocks right after the fork at most
-          ++n_mixable;
-        }
-        else
-        {
-          uint64_t n_outputs = m_db->get_num_outputs(in_to_key.amount);
-          MDEBUG("output size " << print_money(in_to_key.amount) << ": " << n_outputs << " available");
-          // n_outputs includes the output we're considering
-          if (n_outputs <= min_mixin)
-            ++n_unmixable;
-          else
-            ++n_mixable;
-        }
-        size_t ring_mixin = in_to_key.key_offsets.size() - 1;
-        if (ring_mixin < min_actual_mixin)
-          min_actual_mixin = ring_mixin;
-        if (ring_mixin > max_actual_mixin)
-          max_actual_mixin = ring_mixin;
-      }
-    }
-    MDEBUG("Mixin: " << min_actual_mixin << "-" << max_actual_mixin);
-
-    if (hf_version >= HF_VERSION_SAME_MIXIN)
-    {
-      if (min_actual_mixin != max_actual_mixin)
-      {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has varying ring size (" << (min_actual_mixin + 1) << "-" << (max_actual_mixin + 1) << "), it should be constant");
-        tvc.m_low_mixin = true;
-        return false;
-      }
-    }
-
-    if (((hf_version == HF_VERSION_MIN_MIXIN_10 || hf_version == HF_VERSION_MIN_MIXIN_10+1) && min_actual_mixin != 10) || (hf_version >= HF_VERSION_MIN_MIXIN_10+2 && min_actual_mixin > 10))
-    {
-      MERROR_VER("Tx " << get_transaction_hash(tx) << " has invalid ring size (" << (min_actual_mixin + 1) << "), it should be 11");
-      tvc.m_low_mixin = true;
-      return false;
-    }
-
-    if (min_actual_mixin < min_mixin)
-    {
-      if (n_unmixable == 0)
-      {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has too low ring size (" << (min_actual_mixin + 1) << "), and no unmixable inputs");
-        tvc.m_low_mixin = true;
-        return false;
-      }
-      if (n_mixable > 1)
-      {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has too low ring size (" << (min_actual_mixin + 1) << "), and more than one mixable input with unmixable inputs");
+        MERROR_VER("Tx " << get_transaction_hash(tx) << " must have ring size (" << DEFAULT_RINGSIZE << ")");
         tvc.m_low_mixin = true;
         return false;
       }
     }
 
     // min/max tx version based on HF, and we accept v1 txes if having a non mixable
-    const size_t max_tx_version = (hf_version <= 3) ? 1 : 2;
-    if (tx.version > max_tx_version)
+    const size_t max_tx_version = 1;
+    if (tx.version > max_tx_version && hf_version >= 5)
     {
       MERROR_VER("transaction version " << (unsigned)tx.version << " is higher than max accepted version " << max_tx_version);
       tvc.m_verifivation_failed = true;
       return false;
     }
-    const size_t min_tx_version = (n_unmixable > 0 ? 1 : (hf_version >= HF_VERSION_ENFORCE_RCT) ? 2 : 1);
-    if (tx.version < min_tx_version)
+    const size_t min_tx_version = 1;
+    if (tx.version < min_tx_version && hf_version >= 5)
     {
       MERROR_VER("transaction version " << (unsigned)tx.version << " is lower than min accepted version " << min_tx_version);
       tvc.m_verifivation_failed = true;
@@ -3320,8 +3282,8 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
     }
   }
 
-  // from v7, sorted ins
-  if (hf_version >= 7) {
+  // from v5, sorted ins
+  if (hf_version >= 5) {
     const crypto::key_image *last_key_image = NULL;
     for (size_t n = 0; n < tx.vin.size(); ++n)
     {
@@ -3339,6 +3301,17 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
       }
     }
   }
+/*  NOTE:  This block with m_check_txin_table is from Masari, and doesn't compile
+**         COMMENTING OUT for now, and all references to m_check_txin_table
+*********************************************************************************
+  auto it = m_check_txin_table.find(tx_prefix_hash);
+  if(it == m_check_txin_table.end())
+  {
+    m_check_txin_table.emplace(tx_prefix_hash, std::unordered_map<crypto::key_image, bool>());
+    it = m_check_txin_table.find(tx_prefix_hash);
+    assert(it != m_check_txin_table.end());
+  }
+*********************************************************************************/
 
   std::vector<std::vector<rct::ctkey>> pubkeys(tx.vin.size());
   std::vector < uint64_t > results;
@@ -3368,15 +3341,17 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
       return false;
     }
 
-    if (tx.version == 1)
-    {
-      // basically, make sure number of inputs == number of signatures
-      CHECK_AND_ASSERT_MES(sig_index < tx.signatures.size(), false, "wrong transaction: not signature entry for input with index= " << sig_index);
-    }
+// NOTE: Commenting this block from XMR v17, in case the tx.version == 1 is not right for MSR
+////////////////////////////////////////////////////////////////////////////////////////////
+//    if (tx.version == 1)
+//    {
+//      // basically, make sure number of inputs == number of signatures
+//      CHECK_AND_ASSERT_MES(sig_index < tx.signatures.size(), false, "wrong transaction: not signature entry for input with index= " << sig_index);
+//    }
 
     // make sure that output being spent matches up correctly with the
     // signature spending it.
-    if (!check_tx_input(tx.version, in_to_key, tx_prefix_hash, tx.version == 1 ? tx.signatures[sig_index] : std::vector<crypto::signature>(), tx.rct_signatures, pubkeys[sig_index], pmax_used_block_height, hf_version))
+    if (!check_tx_input(tx.version, in_to_key, tx_prefix_hash, std::vector<crypto::signature>(), tx.rct_signatures, pubkeys[sig_index], pmax_used_block_height, hf_version))
     {
       MERROR_VER("Failed to check ring signature for tx " << get_transaction_hash(tx) << "  vin key with k_image: " << in_to_key.k_image << "  sig_index: " << sig_index);
       if (pmax_used_block_height) // a default value of NULL is used when called from Blockchain::handle_block_to_main_chain()
@@ -3387,65 +3362,10 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
       return false;
     }
 
-    if (tx.version == 1)
-    {
-      if (threads > 1)
-      {
-        // ND: Speedup
-        // 1. Thread ring signature verification if possible.
-        tpool.submit(&waiter, boost::bind(&Blockchain::check_ring_signature, this, std::cref(tx_prefix_hash), std::cref(in_to_key.k_image), std::cref(pubkeys[sig_index]), std::cref(tx.signatures[sig_index]), std::ref(results[sig_index])), true);
-      }
-      else
-      {
-        check_ring_signature(tx_prefix_hash, in_to_key.k_image, pubkeys[sig_index], tx.signatures[sig_index], results[sig_index]);
-        if (!results[sig_index])
-        {
-          MERROR_VER("Failed to check ring signature for tx " << get_transaction_hash(tx) << "  vin key with k_image: " << in_to_key.k_image << "  sig_index: " << sig_index);
-
-          if (pmax_used_block_height)  // a default value of NULL is used when called from Blockchain::handle_block_to_main_chain()
-          {
-            MERROR_VER("*pmax_used_block_height: " << *pmax_used_block_height);
-          }
-
-          return false;
-        }
-      }
-    }
-
     sig_index++;
   }
-  if (tx.version == 1 && threads > 1)
-    if (!waiter.wait())
-      return false;
 
-  // enforce min output age
-  if (hf_version >= HF_VERSION_ENFORCE_MIN_AGE)
-  {
-    CHECK_AND_ASSERT_MES(*pmax_used_block_height + CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE <= m_db->height(),
-        false, "Transaction spends at least one output which is too young");
-  }
-
-  if (tx.version == 1)
-  {
-    if (threads > 1)
-    {
-      // save results to table, passed or otherwise
-      bool failed = false;
-      for (size_t i = 0; i < tx.vin.size(); i++)
-      {
-        const txin_to_key& in_to_key = boost::get<txin_to_key>(tx.vin[i]);
-        if(!failed && !results[i])
-          failed = true;
-      }
-
-      if (failed)
-      {
-        MERROR_VER("Failed to check ring signatures!");
-        return false;
-      }
-    }
-  }
-  else
+  if (tx.version >= 1)
   {
     if (!expand_transaction_2(tx, tx_prefix_hash, pubkeys))
     {
@@ -3628,19 +3548,6 @@ void Blockchain::check_ring_signature(const crypto::hash &tx_prefix_hash, const 
 }
 
 //------------------------------------------------------------------
-uint64_t Blockchain::get_fee_quantization_mask()
-{
-  static uint64_t mask = 0;
-  if (mask == 0)
-  {
-    mask = 1;
-    for (size_t n = PER_KB_FEE_QUANTIZATION_DECIMALS; n < CRYPTONOTE_DISPLAY_DECIMAL_POINT; ++n)
-      mask *= 10;
-  }
-  return mask;
-}
-
-//------------------------------------------------------------------
 uint64_t Blockchain::get_dynamic_base_fee(uint64_t block_reward, size_t median_block_weight, uint8_t version)
 {
   const uint64_t min_block_weight = get_min_block_weight(version);
@@ -3658,7 +3565,7 @@ uint64_t Blockchain::get_dynamic_base_fee(uint64_t block_reward, size_t median_b
     return lo;
   }
 
-  const uint64_t fee_base = version >= 5 ? DYNAMIC_FEE_PER_KB_BASE_FEE_V5 : DYNAMIC_FEE_PER_KB_BASE_FEE;
+  const uint64_t fee_base = DYNAMIC_FEE_PER_KB_BASE_FEE;
 
   uint64_t unscaled_fee_base = (fee_base * min_block_weight / median_block_weight);
   lo = mul128(unscaled_fee_base, block_reward, &hi);
@@ -3681,7 +3588,7 @@ bool Blockchain::check_fee(size_t tx_weight, uint64_t fee) const
   uint64_t median = 0;
   uint64_t already_generated_coins = 0;
   uint64_t base_reward = 0;
-  if (version >= HF_VERSION_DYNAMIC_FEE)
+  if (true)
   {
     median = m_current_block_cumul_weight_limit / 2;
     const uint64_t blockchain_height = m_db->height();
@@ -3704,14 +3611,8 @@ bool Blockchain::check_fee(size_t tx_weight, uint64_t fee) const
   else
   {
     uint64_t fee_per_kb;
-    if (version < HF_VERSION_DYNAMIC_FEE)
-    {
-      fee_per_kb = FEE_PER_KB;
-    }
-    else
-    {
-      fee_per_kb = get_dynamic_base_fee(base_reward, median, version);
-    }
+    fee_per_kb = get_dynamic_base_fee(base_reward, median, version);
+ 
     MDEBUG("Using " << print_money(fee_per_kb) << "/kB fee");
 
     needed_fee = tx_weight / 1024;
@@ -3732,9 +3633,6 @@ uint64_t Blockchain::get_dynamic_base_fee_estimate(uint64_t grace_blocks) const
 {
   const uint8_t version = get_current_hard_fork_version();
   const uint64_t db_height = m_db->height();
-
-  if (version < HF_VERSION_DYNAMIC_FEE)
-    return FEE_PER_KB;
 
   if (grace_blocks >= CRYPTONOTE_REWARD_BLOCKS_WINDOW)
     grace_blocks = CRYPTONOTE_REWARD_BLOCKS_WINDOW - 1;
@@ -3784,8 +3682,14 @@ bool Blockchain::is_tx_spendtime_unlocked(uint64_t unlock_time, uint8_t hf_versi
   else
   {
     //interpret as time
-    const uint64_t current_time = hf_version >= HF_VERSION_DETERMINISTIC_UNLOCK_TIME ? get_adjusted_time(m_db->height()) : static_cast<uint64_t>(time(NULL));
-    if(current_time + (get_current_hard_fork_version() < 2 ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2) >= unlock_time)
+
+// NOTE commented the XMR logic here, where the fork versions are different    
+///////////////////////////////////////////////////////////////////////////
+//    const uint64_t current_time = hf_version >= HF_VERSION_DETERMINISTIC_UNLOCK_TIME ? get_adjusted_time(m_db->height()) : static_cast<uint64_t>(time(NULL));
+//    if(current_time + (get_current_hard_fork_version() < 2 ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2) >= unlock_time)
+
+    uint64_t current_time = static_cast<uint64_t>(time(NULL));
+    if(current_time + CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1 >= unlock_time)
       return true;
     else
       return false;
@@ -3847,9 +3751,6 @@ bool Blockchain::check_tx_input(size_t tx_version, const txin_to_key& txin, cons
     MERROR_VER("Output keys for tx with amount = " << txin.amount << " and count indexes " << txin.key_offsets.size() << " returned wrong keys count " << output_keys.size());
     return false;
   }
-  if (tx_version == 1) {
-    CHECK_AND_ASSERT_MES(sig.size() == output_keys.size(), false, "internal error: tx signatures count=" << sig.size() << " mismatch with outputs keys count for inputs=" << output_keys.size());
-  }
   // rct_signatures will be expanded after this
   return true;
 }
@@ -3859,15 +3760,20 @@ uint64_t Blockchain::get_adjusted_time(uint64_t height) const
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
 
+// NOTE: added this logic for Masari, to get the proper check window and difficulty target
+  uint8_t hf_version = get_current_hard_fork_version();
+  size_t blockchain_timestamp_check_window = hf_version < 2 ? BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW : BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V2;
+  size_t difficulty_target = hf_version < 8 ? DIFFICULTY_TARGET : DIFFICULTY_TARGET_V8;
+
   // if not enough blocks, no proper median yet, return current time
-  if(height < BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW)
+  if(height < blockchain_timestamp_check_window)
   {
       return static_cast<uint64_t>(time(NULL));
   }
   std::vector<uint64_t> timestamps;
 
   // need most recent 60 blocks, get index of first of those
-  size_t offset = height - BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW;
+  size_t offset = height - blockchain_timestamp_check_window;
   timestamps.reserve(height - offset);
   for(;offset < height; ++offset)
   {
@@ -3877,11 +3783,11 @@ uint64_t Blockchain::get_adjusted_time(uint64_t height) const
 
   // project the median to match approximately when the block being validated will appear
   // the median is calculated from a chunk of past blocks, so we use +1 to offset onto the current block
-  median_ts += (BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW + 1) * DIFFICULTY_TARGET_V2 / 2;
+  median_ts += (blockchain_timestamp_check_window + 1) * difficulty_target / 2;
 
   // project the current block's time based on the previous block's time
   // we don't use the current block's time directly to mitigate timestamp manipulation
-  uint64_t adjusted_current_block_ts = timestamps.back() + DIFFICULTY_TARGET_V2;
+  uint64_t adjusted_current_block_ts = timestamps.back() + difficulty_target;
 
   // return minimum of ~current block time and adjusted median time
   // we do this since it's better to report a time in the past than a time in the future
@@ -3894,14 +3800,25 @@ bool Blockchain::check_block_timestamp(std::vector<uint64_t>& timestamps, const 
   LOG_PRINT_L3("Blockchain::" << __func__);
   median_ts = epee::misc_utils::median(timestamps);
 
+  uint8_t hf_version = get_current_hard_fork_version();
+  size_t blockchain_timestamp_check_window = hf_version < 2 ? BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW : BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V2;
+
+  uint64_t top_block_timestamp = timestamps.empty() ? b.timestamp : timestamps.back();
+  if (hf_version > 5 && b.timestamp < top_block_timestamp - CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6)
+  {
+    MERROR_VER("Timestamp " << b.timestamp << " of block id: " << get_block_hash(b) << ", is less than top block timestamp - FTL = " << top_block_timestamp - CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6);
+    return false;
+  }
+
   if(b.timestamp < median_ts)
   {
-    MERROR_VER("Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp << ", less than median of last " << BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW << " blocks, " << median_ts);
+    MERROR_VER("Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp << ", less than median of last " << blockchain_timestamp_check_window << " blocks, " << median_ts);
     return false;
   }
 
   return true;
 }
+
 //------------------------------------------------------------------
 // This function grabs the timestamps from the most recent <n> blocks,
 // where n = BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW.  If there are not those many
@@ -3913,16 +3830,28 @@ bool Blockchain::check_block_timestamp(std::vector<uint64_t>& timestamps, const 
 bool Blockchain::check_block_timestamp(const block& b, uint64_t& median_ts) const
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
-  if(b.timestamp > (uint64_t)time(NULL) + CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT)
+  uint64_t cryptonote_block_future_time_limit;
+  uint8_t hf_version = get_current_hard_fork_version();
+  if (hf_version < 2) {
+    cryptonote_block_future_time_limit = CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT;
+  } else if (hf_version < 6) {
+    cryptonote_block_future_time_limit = CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V2;
+  } else {
+    cryptonote_block_future_time_limit = CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6;
+  }
+
+  if(b.timestamp > get_adjusted_time(m_db->height()) + cryptonote_block_future_time_limit)
   {
-    MERROR_VER("Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp << ", bigger than local time + 2 hours");
+    MERROR_VER("Timestamp of block with id: " << get_block_hash(b) << ", " << b.timestamp << ", bigger than adjusted time + " << (get_current_hard_fork_version() < 2 ? "2 hours" : "30 minutes"));
     return false;
   }
+
+  size_t blockchain_timestamp_check_window = get_current_hard_fork_version() < 2 ? BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW : BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V2;
 
   const auto h = m_db->height();
 
   // if not enough blocks, no proper median yet, return true
-  if(h < BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW)
+  if(h < blockchain_timestamp_check_window)
   {
     return true;
   }
@@ -3930,7 +3859,7 @@ bool Blockchain::check_block_timestamp(const block& b, uint64_t& median_ts) cons
   std::vector<uint64_t> timestamps;
 
   // need most recent 60 blocks, get index of first of those
-  size_t offset = h - BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW;
+  size_t offset = h - blockchain_timestamp_check_window;
   timestamps.reserve(h - offset);
   for(;offset < h; ++offset)
   {
@@ -4401,6 +4330,13 @@ bool Blockchain::check_blockchain_pruning()
 //------------------------------------------------------------------
 uint64_t Blockchain::get_next_long_term_block_weight(uint64_t block_weight) const
 {
+//  NOTE:  I don't think "long term block weight" is used by Masari
+//         Making this a no-op, but Need to validate
+
+  return block_weight;
+
+/***********   No-OP, commented out   *******************************
+
   PERF_TIMER(get_next_long_term_block_weight);
 
   const uint64_t db_height = m_db->height();
@@ -4417,6 +4353,8 @@ uint64_t Blockchain::get_next_long_term_block_weight(uint64_t block_weight) cons
   uint64_t long_term_block_weight = std::min<uint64_t>(block_weight, short_term_constraint);
 
   return long_term_block_weight;
+
+***********   No-OP, commented out   *******************************/
 }
 //------------------------------------------------------------------
 bool Blockchain::update_next_cumulative_weight_limit(uint64_t *long_term_effective_median_block_weight)
@@ -4430,12 +4368,17 @@ bool Blockchain::update_next_cumulative_weight_limit(uint64_t *long_term_effecti
   const uint8_t hf_version = get_current_hard_fork_version();
   uint64_t full_reward_zone = get_min_block_weight(hf_version);
 
-  if (hf_version < HF_VERSION_LONG_TERM_BLOCK_WEIGHT)
-  {
+//  NOTE:  I don't think "long term block weight" is used by Masari
+//         Need to validate
+//
+//  if (hf_version < HF_VERSION_LONG_TERM_BLOCK_WEIGHT)
+//  {
     std::vector<uint64_t> weights;
     get_last_n_blocks_weights(weights, CRYPTONOTE_REWARD_BLOCKS_WINDOW);
     m_current_block_cumul_weight_median = epee::misc_utils::median(weights);
-  }
+//  }
+
+/*******   Commenting out "long term block weight" logic  *****************
   else
   {
     const uint64_t block_weight = m_db->get_block_weight(db_height - 1);
@@ -4478,6 +4421,8 @@ bool Blockchain::update_next_cumulative_weight_limit(uint64_t *long_term_effecti
 
     m_current_block_cumul_weight_median = effective_median_block_weight;
   }
+
+*************   Commented Out   *************************************************/
 
   if (m_current_block_cumul_weight_median <= full_reward_zone)
     m_current_block_cumul_weight_median = full_reward_zone;
@@ -4564,7 +4509,7 @@ void Blockchain::check_against_checkpoints(const checkpoints& points, bool enfor
       }
       else
       {
-        LOG_ERROR("WARNING: local blockchain failed to pass a MoneroPulse checkpoint, and you could be on a fork. You should either sync up from scratch, OR download a fresh blockchain bootstrap, OR enable checkpoint enforcing with the --enforce-dns-checkpointing command-line option");
+        LOG_ERROR("WARNING: local blockchain failed to pass a MasariPulse checkpoint, and you could be on a fork. You should either sync up from scratch, OR download a fresh blockchain bootstrap, OR enable checkpoint enforcing with the --enforce-dns-checkpointing command-line option");
       }
     }
   }
@@ -4695,6 +4640,7 @@ bool Blockchain::cleanup_handle_incoming_blocks(bool force_sync)
   m_blocks_longhash_table.clear();
   m_scan_table.clear();
   m_blocks_txs_check.clear();
+//  m_check_txin_table.clear();    Used in Masari, but doesn't compile here
 
   // when we're well clear of the precomputed hashes, free the memory
   if (!m_blocks_hash_check.empty() && m_db->height() > m_blocks_hash_check.size() + 4096)
@@ -5024,6 +4970,7 @@ bool Blockchain::prepare_handle_incoming_blocks(const std::vector<block_complete
   m_fake_pow_calc_time = 0;
 
   m_scan_table.clear();
+//  m_check_txin_table.clear();    Used in Masari, but doesn't compile here
 
   TIME_MEASURE_FINISH(prepare);
   m_fake_pow_calc_time = prepare / blocks_entry.size();
@@ -5306,7 +5253,8 @@ bool Blockchain::get_hard_fork_voting_info(uint8_t version, uint32_t &window, ui
 
 uint64_t Blockchain::get_difficulty_target() const
 {
-  return get_current_hard_fork_version() < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+  LOG_PRINT_L3("Blockchain::" << __func__);
+  return get_current_hard_fork_version() < 8 ? DIFFICULTY_TARGET : DIFFICULTY_TARGET_V8;
 }
 
 std::map<uint64_t, std::tuple<uint64_t, uint64_t, uint64_t>> Blockchain:: get_output_histogram(const std::vector<uint64_t> &amounts, bool unlocked, uint64_t recent_cutoff, uint64_t min_count) const
@@ -5377,7 +5325,7 @@ void Blockchain::cancel()
 }
 
 #if defined(PER_BLOCK_CHECKPOINT)
-static const char expected_block_hashes_hash[] = "b6fa3343a9465692873bb9cf4d161d1d0316d4e3422fa7a57f6228526e8f5520";
+static const char expected_block_hashes_hash[] = "2e3cecbfed53736e0335dd8509068e7fe9bd8ca2f51202d31134c46eac80c26e";
 void Blockchain::load_compiled_in_block_hashes(const GetCheckpointsCallback& get_checkpoints)
 {
   if (get_checkpoints == nullptr || !m_fast_sync)

@@ -310,7 +310,7 @@ namespace cryptonote
     if (hshd.current_height > 0)
     {
       const uint8_t version = m_core.get_ideal_hard_fork_version(hshd.current_height - 1);
-      if (version >= 6 && version != hshd.top_version)
+      if (version >= 1 && version != hshd.top_version)
       {
         if (version < hshd.top_version && version == m_core.get_ideal_hard_fork_version())
           MDEBUG(context << " peer claims higher version than we think (" <<
@@ -367,13 +367,16 @@ namespace cryptonote
     /* As I don't know if accessing hshd from core could be a good practice,
     I prefer pushing target height to the core at the same time it is pushed to the user.
     Nz. */
+    m_core.set_target_blockchain_height((hshd.current_height));
     int64_t diff = static_cast<int64_t>(hshd.current_height) - static_cast<int64_t>(m_core.get_current_blockchain_height());
     uint64_t abs_diff = std::abs(diff);
-    uint64_t max_block_height = std::max(hshd.current_height,m_core.get_current_blockchain_height());
-    uint64_t last_block_v1 = m_core.get_nettype() == TESTNET ? 624633 : m_core.get_nettype() == MAINNET ? 1009826 : (uint64_t)-1;
-    uint64_t diff_v2 = max_block_height > last_block_v1 ? std::min(abs_diff, max_block_height - last_block_v1) : 0;
+    uint64_t max_block_height = std::max(hshd.current_height, m_core.get_current_blockchain_height());
+    // TODO-TK: fill in when we have correct fork heights
+    uint64_t last_block_v7 = m_core.get_nettype() == TESTNET ? 94280 : m_core.get_nettype() == MAINNET ? (uint64_t)-1 : (uint64_t)-1;
+    uint64_t diff_v8 = max_block_height > last_block_v7 ? std::min(abs_diff, max_block_height - last_block_v7) : 0;
+
     MCLOG(is_inital ? el::Level::Info : el::Level::Debug, "global", el::Color::Yellow, context <<  "Sync data returned a new top block candidate: " << m_core.get_current_blockchain_height() << " -> " << hshd.current_height
-      << " [Your node is " << abs_diff << " blocks (" << tools::get_human_readable_timespan((abs_diff - diff_v2) * DIFFICULTY_TARGET_V1 + diff_v2 * DIFFICULTY_TARGET_V2) << ") "
+      << " [Your node is " << abs_diff << " blocks (" << ((abs_diff - diff_v8) / (24 * 60 * 60 / DIFFICULTY_TARGET)) + (diff_v8 / (24 * 60 * 60 / DIFFICULTY_TARGET_V8)) << " days) "
       << (0 <= diff ? std::string("behind") : std::string("ahead"))
       << "] " << ENDL << "SYNCHRONIZATION started");
       if (hshd.current_height >= m_core.get_current_blockchain_height() + 5) // don't switch to unsafe mode just for a few blocks
@@ -2022,7 +2025,8 @@ skip:
     if (local_stripe == 0)
       return false;
     // don't request pre-bulletprooof pruned blocks, we can't reconstruct their weight (yet)
-    static const uint64_t bp_fork_height = m_core.get_earliest_ideal_height_for_version(HF_VERSION_SMALLER_BP + 1);
+    // in Masari, this is version 8
+    static const uint64_t bp_fork_height = m_core.get_earliest_ideal_height_for_version(8);
     if (first_block_height < bp_fork_height)
       return false;
     // assumes the span size is less or equal to the stripe size

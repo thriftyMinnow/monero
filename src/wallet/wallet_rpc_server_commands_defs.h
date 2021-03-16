@@ -704,6 +704,7 @@ namespace wallet_rpc
     typedef epee::misc_utils::struct_init<response_t> response;
   };
 
+  // NOTE: leaving this struct to minimize upstream diffs, but should never be referenced in MSR
   struct COMMAND_RPC_SWEEP_DUST
   {
     struct request_t

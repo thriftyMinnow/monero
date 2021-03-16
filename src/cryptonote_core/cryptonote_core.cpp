@@ -827,8 +827,9 @@ namespace cryptonote
     }
     bad_semantics_txes_lock.unlock();
 
+    // TODO-TK: need to consider tx versioning standard.
+    const size_t max_tx_version = CURRENT_TRANSACTION_VERSION;
     uint8_t version = m_blockchain_storage.get_current_hard_fork_version();
-    const size_t max_tx_version = version == 1 ? 1 : 2;
     if (tx.version == 0 || tx.version > max_tx_version)
     {
       // v2 is the latest one we know
@@ -1109,7 +1110,7 @@ namespace cryptonote
       MERROR_VER("tx with invalid outputs, rejected for tx id= " << get_transaction_hash(tx));
       return false;
     }
-    if (tx.version > 1)
+    if (tx.version >= 1)
     {
       if (tx.rct_signatures.outPk.size() != tx.vout.size())
       {
@@ -1124,23 +1125,11 @@ namespace cryptonote
       return false;
     }
 
-    if (tx.version == 1)
-    {
-      uint64_t amount_in = 0;
-      get_inputs_money_amount(tx, amount_in);
-      uint64_t amount_out = get_outs_money_amount(tx);
+    // for version >= 1, ringct signatures check verifies amounts match
 
-      if(amount_in <= amount_out)
-      {
-        MERROR_VER("tx with wrong amounts: ins " << amount_in << ", outs " << amount_out << ", rejected for tx id= " << get_transaction_hash(tx));
-        return false;
-      }
-    }
-    // for version > 1, ringct signatures check verifies amounts match
-
-    if(!keeped_by_block && get_transaction_weight(tx) >= m_blockchain_storage.get_current_cumulative_block_weight_limit() - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE)
+    if(!keeped_by_block && get_object_blobsize(tx) >= m_blockchain_storage.get_current_cumulative_block_weight_limit() - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE)
     {
-      MERROR_VER("tx is too large " << get_transaction_weight(tx) << ", expected not bigger than " << m_blockchain_storage.get_current_cumulative_block_weight_limit() - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE);
+      MERROR_VER("tx is too large " << get_object_blobsize(tx) << ", expected not bigger than " << m_blockchain_storage.get_current_cumulative_block_weight_limit() - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE);
       return false;
     }
 
@@ -1183,43 +1172,47 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------
   size_t core::get_block_sync_size(uint64_t height) const
   {
-    static const uint64_t quick_height = m_nettype == TESTNET ? 801219 : m_nettype == MAINNET ? 1220516 : 0;
-    size_t res = 0;
-    if (block_sync_size > 0)
-      res = block_sync_size;
-    else if (height >= quick_height)
-      res = BLOCKS_SYNCHRONIZING_DEFAULT_COUNT;
-    else
-      res = BLOCKS_SYNCHRONIZING_DEFAULT_COUNT_PRE_V4;
+    /* i don't think this block synchronize code is needed in Masari
+     *
+     * static const uint64_t quick_height = m_nettype == TESTNET ? 801219 : m_nettype == MAINNET ? 1220516 : 0;
+     * size_t res = 0;
+     * if (block_sync_size > 0)
+     *   res = block_sync_size;
+     * else if (height >= quick_height)
+     *   res = BLOCKS_SYNCHRONIZING_DEFAULT_COUNT;
+     * else
+     *   res = BLOCKS_SYNCHRONIZING_DEFAULT_COUNT_PRE_V4;
 
-    static size_t max_block_size = 0;
-    if (max_block_size == 0)
-    {
-      const char *env = getenv("SEEDHASH_EPOCH_BLOCKS");
-      if (env)
-      {
-        int n = atoi(env);
-        if (n <= 0)
-          n = BLOCKS_SYNCHRONIZING_MAX_COUNT;
-        size_t p = 1;
-        while (p < (size_t)n)
-          p <<= 1;
-        max_block_size = p;
-      }
-      else
-        max_block_size = BLOCKS_SYNCHRONIZING_MAX_COUNT;
-    }
-    if (res > max_block_size)
-    {
-      static bool warned = false;
-      if (!warned)
-      {
-        MWARNING("Clamping block sync size to " << max_block_size);
-        warned = true;
-      }
-      res = max_block_size;
-    }
-    return res;
+     * static size_t max_block_size = 0;
+     * if (max_block_size == 0)
+     * {
+     *   const char *env = getenv("SEEDHASH_EPOCH_BLOCKS");
+     *   if (env)
+     *  {
+     *    int n = atoi(env);
+     *     if (n <= 0)
+     *       n = BLOCKS_SYNCHRONIZING_MAX_COUNT;
+     *     size_t p = 1;
+     *     while (p < (size_t)n)
+     *       p <<= 1;
+     *     max_block_size = p;
+     *   }
+     *   else
+     *     max_block_size = BLOCKS_SYNCHRONIZING_MAX_COUNT;
+     * }
+     * if (res > max_block_size)
+     * {
+     *   static bool warned = false;
+     *   if (!warned)
+     *   {
+     *     MWARNING("Clamping block sync size to " << max_block_size);
+     *     warned = true;
+     *   }
+     *   res = max_block_size;
+     * }
+     * return res;
+     */
+    return BLOCKS_SYNCHRONIZING_DEFAULT_COUNT;
   }
   //-----------------------------------------------------------------------------------------------
   bool core::are_key_images_spent_in_pool(const std::vector<crypto::key_image>& key_im, std::vector<bool> &spent) const
@@ -1272,7 +1265,7 @@ namespace cryptonote
   bool core::check_tx_inputs_ring_members_diff(const transaction& tx) const
   {
     const uint8_t version = m_blockchain_storage.get_current_hard_fork_version();
-    if (version >= 6)
+    if (version >= 1)
     {
       for(const auto& in: tx.vin)
       {
@@ -1768,7 +1761,7 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------
   bool core::check_updates()
   {
-    static const char software[] = "monero";
+    static const char software[] = "masari";
 #ifdef BUILD_TAG
     static const char buildtag[] = BOOST_PP_STRINGIZE(BUILD_TAG);
     static const char subdir[] = "cli"; // because it can never be simple
@@ -1941,13 +1934,16 @@ namespace cryptonote
   //-----------------------------------------------------------------------------------------------
   bool core::check_block_rate()
   {
+    // NOTE:   changed all DIFFICULTY_TARGET_V2 to DIFFICULTY_TARGET_V8 for Masari
+    //         Need to validate this.
+
     if (m_offline || m_nettype == FAKECHAIN || m_target_blockchain_height > get_current_blockchain_height() || m_target_blockchain_height == 0)
     {
       MDEBUG("Not checking block rate, offline or syncing");
       return true;
     }
 
-    static constexpr double threshold = 1. / (864000 / DIFFICULTY_TARGET_V2); // one false positive every 10 days
+    static constexpr double threshold = 1. / (864000 / DIFFICULTY_TARGET_V8); // one false positive every 10 days
     static constexpr unsigned int max_blocks_checked = 150;
 
     const time_t now = time(NULL);
@@ -1959,7 +1955,7 @@ namespace cryptonote
       unsigned int b = 0;
       const time_t time_boundary = now - static_cast<time_t>(seconds[n]);
       for (time_t ts: timestamps) b += ts >= time_boundary;
-      const double p = probability(b, seconds[n] / DIFFICULTY_TARGET_V2);
+      const double p = probability(b, seconds[n] / DIFFICULTY_TARGET_V8);
       MDEBUG("blocks in the last " << seconds[n] / 60 << " minutes: " << b << " (probability " << p << ")");
       if (p < threshold)
       {
@@ -1968,7 +1964,7 @@ namespace cryptonote
         std::shared_ptr<tools::Notify> block_rate_notify = m_block_rate_notify;
         if (block_rate_notify)
         {
-          auto expected = seconds[n] / DIFFICULTY_TARGET_V2;
+          auto expected = seconds[n] / DIFFICULTY_TARGET_V8;
           block_rate_notify->notify("%t", std::to_string(seconds[n] / 60).c_str(), "%b", std::to_string(b).c_str(), "%e", std::to_string(expected).c_str(), NULL);
         }
 

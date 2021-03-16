@@ -272,7 +272,7 @@ struct options {
   const command_line::arg_descriptor<bool> untrusted_daemon = {"untrusted-daemon", tools::wallet2::tr("Disable commands which rely on a trusted daemon"), false};
   const command_line::arg_descriptor<std::string> password = {"password", tools::wallet2::tr("Wallet password (escape/quote as needed)"), "", true};
   const command_line::arg_descriptor<std::string> password_file = {"password-file", tools::wallet2::tr("Wallet password file"), "", true};
-  const command_line::arg_descriptor<int> daemon_port = {"daemon-port", tools::wallet2::tr("Use daemon instance at port <arg> instead of 18081"), 0};
+  const command_line::arg_descriptor<int> daemon_port = {"daemon-port", tools::wallet2::tr("Use daemon instance at port <arg> instead of 38081"), 0};
   const command_line::arg_descriptor<std::string> daemon_login = {"daemon-login", tools::wallet2::tr("Specify username[:password] for daemon RPC client"), "", true};
   const command_line::arg_descriptor<std::string> daemon_ssl = {"daemon-ssl", tools::wallet2::tr("Enable SSL on daemon RPC connections: enabled|disabled|autodetect"), "autodetect"};
   const command_line::arg_descriptor<std::string> daemon_ssl_private_key = {"daemon-ssl-private-key", tools::wallet2::tr("Path to a PEM format private key"), ""};
@@ -1015,14 +1015,14 @@ gamma_picker::gamma_picker(const std::vector<uint64_t> &rct_offsets, double shap
 {
   gamma = std::gamma_distribution<double>(shape, scale);
   THROW_WALLET_EXCEPTION_IF(rct_offsets.size() <= CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE, error::wallet_internal_error, "Bad offset calculation");
-  const size_t blocks_in_a_year = 86400 * 365 / DIFFICULTY_TARGET_V2;
+  const size_t blocks_in_a_year = 86400 * 365 / DIFFICULTY_TARGET_V8;
   const size_t blocks_to_consider = std::min<size_t>(rct_offsets.size(), blocks_in_a_year);
   const size_t outputs_to_consider = rct_offsets.back() - (blocks_to_consider < rct_offsets.size() ? rct_offsets[rct_offsets.size() - blocks_to_consider - 1] : 0);
   begin = rct_offsets.data();
   end = rct_offsets.data() + rct_offsets.size() - CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE;
   num_rct_outputs = *(end - 1);
   THROW_WALLET_EXCEPTION_IF(num_rct_outputs == 0, error::wallet_internal_error, "No rct outputs");
-  average_output_time = DIFFICULTY_TARGET_V2 * blocks_to_consider / outputs_to_consider; // this assumes constant target over the whole rct range
+  average_output_time = DIFFICULTY_TARGET_V8 * blocks_to_consider / outputs_to_consider; // this assumes constant target over the whole rct range
 };
 
 gamma_picker::gamma_picker(const std::vector<uint64_t> &rct_offsets): gamma_picker(rct_offsets, GAMMA_SHAPE, GAMMA_SCALE) {}
@@ -2344,7 +2344,7 @@ void wallet2::process_new_transaction(const crypto::hash &txid, const cryptonote
     }
   }
 
-  uint64_t fee = miner_tx ? 0 : tx.version == 1 ? tx_money_spent_in_ins - get_outs_money_amount(tx) : tx.rct_signatures.txnFee;
+  uint64_t fee = miner_tx ? 0 : tx.rct_signatures.txnFee;
 
   if (tx_money_spent_in_ins > 0 && !pool)
   {
@@ -2509,10 +2509,7 @@ void wallet2::process_outgoing(const crypto::hash &txid, const cryptonote::trans
     // wallet (eg, we're a cold wallet and the hot wallet sent it). For RCT transactions,
     // we only see 0 input amounts, so have to deduce amount out from other parameters.
     entry.first->second.m_amount_in = spent;
-    if (tx.version == 1)
-      entry.first->second.m_amount_out = get_outs_money_amount(tx);
-    else
-      entry.first->second.m_amount_out = spent - tx.rct_signatures.txnFee;
+    entry.first->second.m_amount_out = spent - tx.rct_signatures.txnFee;
     entry.first->second.m_change = received;
 
     std::vector<tx_extra_field> tx_extra_fields;
@@ -4729,7 +4726,7 @@ crypto::secret_key wallet2::generate(const std::string& wallet_, const epee::wip
  {
    // -1 month for fluctuations in block time and machine date/time setup.
    // avg seconds per block
-   const int seconds_per_block = DIFFICULTY_TARGET_V2;
+   const int seconds_per_block = DIFFICULTY_TARGET;
    // ~num blocks per month
    const uint64_t blocks_per_month = 60*60*24*30/seconds_per_block;
 
@@ -6272,9 +6269,8 @@ bool wallet2::is_tx_spendtime_unlocked(uint64_t unlock_time, uint64_t block_heig
     catch(...) { adjusted_time = time(NULL); } // use local time if no daemon to report blockchain time
     // XXX: this needs to be fast, so we'd need to get the starting heights
     // from the daemon to be correct once voting kicks in
-    uint64_t v2height = m_nettype == TESTNET ? 624634 : m_nettype == STAGENET ? 32000  : 1009827;
-    uint64_t leeway = block_height < v2height ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2;
-    if(adjusted_time + leeway >= unlock_time)
+    uint64_t leeway = CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1;
+        if(adjusted_time + leeway >= unlock_time)
       return true;
     else
       return false;
@@ -7448,7 +7444,7 @@ uint64_t wallet2::get_dynamic_base_fee_estimate()
   boost::optional<std::string> result = m_node_rpc_proxy.get_dynamic_base_fee_estimate(FEE_ESTIMATE_GRACE_BLOCKS, fee);
   if (!result)
     return fee;
-  const uint64_t base_fee = use_fork_rules(HF_VERSION_PER_BYTE_FEE) ? FEE_PER_BYTE : FEE_PER_KB;
+  const uint64_t base_fee = DYNAMIC_FEE_PER_KB_BASE_BLOCK_REWARD;
   LOG_PRINT_L1("Failed to query base fee, using " << print_money(base_fee));
   return base_fee;
 }
@@ -7457,15 +7453,8 @@ uint64_t wallet2::get_base_fee()
 {
   if(m_light_wallet)
   {
-    if (use_fork_rules(HF_VERSION_PER_BYTE_FEE))
-      return m_light_wallet_per_kb_fee / 1024;
-    else
-      return m_light_wallet_per_kb_fee;
+    return m_light_wallet_per_kb_fee;
   }
-  bool use_dyn_fee = use_fork_rules(HF_VERSION_DYNAMIC_FEE, -30 * 1);
-  if (!use_dyn_fee)
-    return FEE_PER_KB;
-
   return get_dynamic_base_fee_estimate();
 }
 //----------------------------------------------------------------------------------------------------
@@ -7520,19 +7509,7 @@ uint64_t wallet2::get_max_ring_size()
 //------------------------------------------------------------------------------------------------------------------------------
 uint64_t wallet2::adjust_mixin(uint64_t mixin)
 {
-  const uint64_t min_ring_size = get_min_ring_size();
-  if (mixin + 1 < min_ring_size)
-  {
-    MWARNING("Requested ring size " << (mixin + 1) << " too low, using " << min_ring_size);
-    mixin = min_ring_size-1;
-  }
-  const uint64_t max_ring_size = get_max_ring_size();
-  if (max_ring_size && mixin + 1 > max_ring_size)
-  {
-    MWARNING("Requested ring size " << (mixin + 1) << " too high, using " << max_ring_size);
-    mixin = max_ring_size-1;
-  }
-  return mixin;
+  return DEFAULT_MIXIN;
 }
 //----------------------------------------------------------------------------------------------------
 uint32_t wallet2::adjust_priority(uint32_t priority)
@@ -9790,7 +9767,7 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_2(std::vector<cryp
   uint64_t needed_fee, available_for_fee = 0;
   uint64_t upper_transaction_weight_limit = get_upper_transaction_weight_limit();
   const bool use_per_byte_fee = use_fork_rules(HF_VERSION_PER_BYTE_FEE, 0);
-  const bool use_rct = use_fork_rules(4, 0);
+  const bool use_rct = true;
   const bool bulletproof = use_fork_rules(get_bulletproof_fork(), 0);
   const bool clsag = use_fork_rules(get_clsag_fork(), 0);
   const rct::RCTConfig rct_config {
@@ -10350,7 +10327,7 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_all(uint64_t below
 {
   std::vector<size_t> unused_transfers_indices;
   std::vector<size_t> unused_dust_indices;
-  const bool use_rct = use_fork_rules(4, 0);
+  const bool use_rct = true;
 
   // determine threshold for fractional amount
   const bool use_per_byte_fee = use_fork_rules(HF_VERSION_PER_BYTE_FEE, 0);
@@ -10421,7 +10398,7 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_single(const crypt
 {
   std::vector<size_t> unused_transfers_indices;
   std::vector<size_t> unused_dust_indices;
-  const bool use_rct = use_fork_rules(4, 0);
+  const bool use_rct = true;
   // find output with the given key image
   for (size_t i = 0; i < m_transfers.size(); ++i)
   {
@@ -10463,7 +10440,7 @@ std::vector<wallet2::pending_tx> wallet2::create_transactions_from(const crypton
   std::vector<std::vector<get_outs_entry>> outs;
 
   const bool use_per_byte_fee = use_fork_rules(HF_VERSION_PER_BYTE_FEE);
-  const bool use_rct = fake_outs_count > 0 && use_fork_rules(4, 0);
+  const bool use_rct = true;
   const bool bulletproof = use_fork_rules(get_bulletproof_fork(), 0);
   const bool clsag = use_fork_rules(get_clsag_fork(), 0);
   const rct::RCTConfig rct_config {
@@ -10780,10 +10757,11 @@ uint64_t wallet2::get_upper_transaction_weight_limit()
 {
   if (m_upper_transaction_weight_limit > 0)
     return m_upper_transaction_weight_limit;
-  uint64_t full_reward_zone = use_fork_rules(5, 10) ? CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5 : use_fork_rules(2, 10) ? CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2 : CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1;
-  if (use_fork_rules(8, 10))
-    return full_reward_zone / 2 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
-  else
+  uint64_t full_reward_zone = CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1;
+  // Not sure about fork_rules(8, 10) in MSR .. commenting for now
+  // if (use_fork_rules(8, 10))
+  //   return full_reward_zone / 2 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
+  // else
     return full_reward_zone - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE;
 }
 //----------------------------------------------------------------------------------------------------
@@ -12120,11 +12098,11 @@ uint64_t wallet2::get_daemon_blockchain_target_height(string &err)
 uint64_t wallet2::get_approximate_blockchain_height() const
 {
   // time of v2 fork
-  const time_t fork_time = m_nettype == TESTNET ? 1448285909 : m_nettype == STAGENET ? 1520937818 : 1458748658;
+  const time_t fork_time = m_nettype == TESTNET ? 1448285909 : m_nettype == STAGENET ? (time_t)-1/*TODO*/ : 1458748658;
   // v2 fork block
-  const uint64_t fork_block = m_nettype == TESTNET ? 624634 : m_nettype == STAGENET ? 32000 : 1009827;
+  const uint64_t fork_block = m_nettype == TESTNET ? 624634 : m_nettype == STAGENET ? (uint64_t)-1/*TODO*/ : 1009827;
   // avg seconds per block
-  const int seconds_per_block = DIFFICULTY_TARGET_V2;
+  const int seconds_per_block = DIFFICULTY_TARGET;
   // Calculated blockchain height
   uint64_t approx_blockchain_height = fork_block + (time(NULL) - fork_time)/seconds_per_block;
   // testnet got some huge rollbacks, so the estimation is way off

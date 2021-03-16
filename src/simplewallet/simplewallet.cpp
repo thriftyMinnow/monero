@@ -102,7 +102,7 @@ typedef cryptonote::simple_wallet sw;
 
 #define MIN_RING_SIZE DEFAULT_RINGSIZE // Used to inform user about min ring size -- does not track actual protocol
 
-#define OLD_AGE_WARN_THRESHOLD (30 * 86400 / DIFFICULTY_TARGET_V2) // 30 days
+#define OLD_AGE_WARN_THRESHOLD (30 * 86400 / DIFFICULTY_TARGET_V8) // 30 days
 
 #define LOCK_IDLE_SCOPE() \
   bool auto_refresh_enabled = m_auto_refresh_enabled.load(std::memory_order_relaxed); \
@@ -969,7 +969,7 @@ bool simple_wallet::print_fee_info(const std::vector<std::string> &args/* = std:
       std::string msg;
       if (priority == m_wallet->get_default_priority() || (m_wallet->get_default_priority() == 0 && priority == 2))
         msg = tr(" (current)");
-      uint64_t minutes_low = nblocks_low * DIFFICULTY_TARGET_V2 / 60, minutes_high = nblocks_high * DIFFICULTY_TARGET_V2 / 60;
+      uint64_t minutes_low = nblocks_low * DIFFICULTY_TARGET / 60, minutes_high = nblocks_high * DIFFICULTY_TARGET / 60;
       if (nblocks_high == nblocks_low)
         message_writer() << (boost::format(tr("%u block (%u minutes) backlog at priority %u%s")) % nblocks_low % minutes_low % priority % msg).str();
       else
@@ -3206,7 +3206,7 @@ simple_wallet::simple_wallet()
                            tr(USAGE_LOCKED_SWEEP_ALL),
                            tr("Send all unlocked balance to an address and lock it for <lockblocks> (max. 1000000). If the parameter \"index=<N1>[,<N2>,...]\" or \"index=all\" is specified, the wallet sweeps outputs received by those or all address indices, respectively. If omitted, the wallet randomly chooses an address index to be used. <priority> is the priority of the sweep. The higher the priority, the higher the transaction fee. Valid values in priority order (from lowest to highest) are: unimportant, normal, elevated, priority. If omitted, the default value (see the command \"set priority\") is used."));
 /*
- * Masari doesn't need the sweep_unmixable option.
+ * Masari may not need the sweep_unmixable option, removing for now.
  *   m_cmd_binder.set_handler("sweep_unmixable",
  *                            boost::bind(&simple_wallet::on_command, this, &simple_wallet::sweep_unmixable, _1),
  *                            tr("Send all unmixable outputs to yourself with ring_size 1"));
@@ -6597,12 +6597,12 @@ bool simple_wallet::transfer_main(int transfer_type, const std::vector<std::stri
         unlock_block = bc_height + locked_blocks;
         ptx_vector = m_wallet->create_transactions_2(dsts, fake_outs_count, unlock_block /* unlock_time */, priority, extra, m_current_subaddress_account, subaddr_indices);
       break;
-      default:
-        LOG_ERROR("Unknown transfer method, using default");
-        /* FALLTHRU */
       case Transfer:
         ptx_vector = m_wallet->create_transactions_2(dsts, fake_outs_count, 0 /* unlock_time */, priority, extra, m_current_subaddress_account, subaddr_indices);
       break;
+      default:
+        LOG_ERROR("Unknown transfer method, using original");
+        /* FALLTHRU */
     }
 
     if (ptx_vector.empty())
@@ -6669,8 +6669,6 @@ bool simple_wallet::transfer_main(int transfer_type, const std::vector<std::stri
     {
         uint64_t total_sent = 0;
         uint64_t total_fee = 0;
-        uint64_t dust_not_in_fee = 0;
-        uint64_t dust_in_fee = 0;
         uint64_t change = 0;
         for (size_t n = 0; n < ptx_vector.size(); ++n)
         {
@@ -6679,11 +6677,6 @@ bool simple_wallet::transfer_main(int transfer_type, const std::vector<std::stri
             total_sent += m_wallet->get_transfer_details(i).amount();
           total_sent -= ptx_vector[n].change_dts.amount + ptx_vector[n].fee;
           change += ptx_vector[n].change_dts.amount;
-
-          if (ptx_vector[n].dust_added_to_fee)
-            dust_in_fee += ptx_vector[n].dust;
-          else
-            dust_not_in_fee += ptx_vector[n].dust;
         }
 
         std::stringstream prompt;
@@ -6710,9 +6703,6 @@ bool simple_wallet::transfer_main(int transfer_type, const std::vector<std::stri
           prompt << boost::format(tr("The transaction fee is %s")) %
             print_money(total_fee);
         }
-        if (dust_in_fee != 0) prompt << boost::format(tr(", of which %s is dust from change")) % print_money(dust_in_fee);
-        if (dust_not_in_fee != 0)  prompt << tr(".") << ENDL << boost::format(tr("A total of %s from dust change will be sent to dust address")) 
-                                                   % print_money(dust_not_in_fee);
         if (transfer_type == TransferLocked)
         {
           float days = locked_blocks / 720.0f;
@@ -6821,6 +6811,8 @@ bool simple_wallet::locked_sweep_all(const std::vector<std::string> &args_)
 }
 //----------------------------------------------------------------------------------------------------
 
+// NOTE: The sweep_unmixable may not be needed in Masari ..
+//       the code to set a handler for this option is commented out above.
 bool simple_wallet::sweep_unmixable(const std::vector<std::string> &args_)
 {
   if (!try_connect_to_daemon())
@@ -8437,7 +8429,7 @@ bool simple_wallet::get_transfers(std::vector<std::string>& local_args, std::vec
         else
         {
           const uint64_t adjusted_time = m_wallet->get_daemon_adjusted_time();
-          uint64_t threshold = adjusted_time + (m_wallet->use_fork_rules(2, 0) ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1);
+          uint64_t threshold = adjusted_time + (m_wallet->use_fork_rules(2, 0) ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V8 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1);
           if (threshold < pd.m_unlock_time)
             locked_msg = get_human_readable_timespan(std::chrono::seconds(pd.m_unlock_time - threshold));
         }
@@ -10149,7 +10141,7 @@ bool simple_wallet::show_transfer(const std::vector<std::string> &args)
       else
       {
         const uint64_t adjusted_time = m_wallet->get_daemon_adjusted_time();
-        uint64_t threshold = adjusted_time + (m_wallet->use_fork_rules(2, 0) ? CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2 : CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1);
+        uint64_t threshold = adjusted_time + CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1;
         if (threshold >= pd.m_unlock_time)
           success_msg_writer() << "unlocked for " << get_human_readable_timespan(std::chrono::seconds(threshold - pd.m_unlock_time));
         else

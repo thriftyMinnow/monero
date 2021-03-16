@@ -91,7 +91,6 @@ struct PendingTransaction
     // commit transaction or save to file if filename is provided.
     virtual bool commit(const std::string &filename = "", bool overwrite = false) = 0;
     virtual uint64_t amount() const = 0;
-    virtual uint64_t dust() const = 0;
     virtual uint64_t fee() const = 0;
     virtual std::vector<std::string> txid() const = 0;
     /*!
@@ -862,10 +861,11 @@ struct Wallet
      * \brief createSweepUnmixableTransaction creates transaction with unmixable outputs.
      * \return                  PendingTransaction object. caller is responsible to check PendingTransaction::status()
      *                          after object returned
+     *
+     *  NOTE:  Not used in Masari, should not be called/referenced
      */
-
-    virtual PendingTransaction * createSweepUnmixableTransaction() = 0;
-    
+     virtual PendingTransaction * createSweepUnmixableTransaction() = 0;
+     
    /*!
     * \brief loadUnsignedTx  - creates transaction from unsigned tx file
     * \return                - UnsignedTransaction object. caller is responsible to check UnsignedTransaction::status()
