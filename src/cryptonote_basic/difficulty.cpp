@@ -322,12 +322,13 @@ namespace cryptonote {
 //    uint64_t next_diff = (low + adjusted_total_timespan - 1) / adjusted_total_timespan;
 //    if (next_diff < 1) next_diff = 1;
 
-    boost::multiprecision::uint256_t res =  (boost::multiprecision::uint256_t(total_work) * target_seconds + adjusted_total_timespan - 1) / adjusted_total_timespan;
+    boost::multiprecision::uint256_t res = boost::multiprecision::uint256_t(total_work) * target_seconds;
     if(res > max128bit)
     {
       return 0; // to behave like previous implementation, may be better return max128bit?
     }
-    difficulty_type next_diff = res.convert_to<difficulty_type>();
+
+    difficulty_type next_diff = (res.convert_to<difficulty_type>() + adjusted_total_timespan -1) / adjusted_total_timespan;
     if (next_diff < 1) next_diff = 1;
 
     LOG_PRINT_L2("Total timespan: " << total_timespan << ", Adjusted total timespan: " << adjusted_total_timespan << ", Total work: " << total_work << ", Next diff: " << next_diff << ", Hashrate (H/s): " << next_diff / target_seconds);
@@ -410,12 +411,13 @@ namespace cryptonote {
 //    }
 //    return low / weighted_timespans;
 
-    boost::multiprecision::uint256_t res = (boost::multiprecision::uint256_t(total_work) * target) / weighted_timespans;
+    boost::multiprecision::uint256_t res = boost::multiprecision::uint256_t(total_work) * target;
     if(res > max128bit)
     {
       return 0; // to behave like previous implementation, may be better return max128bit?
     }
-    return res.convert_to<difficulty_type>();
+    difficulty_type next_diff = res.convert_to<difficulty_type>() / weighted_timespans;
+    return next_diff;
   }
 
   // LWMA difficulty algorithm
@@ -446,16 +448,6 @@ namespace cryptonote {
 
   difficulty_type next_difficulty_v6(std::vector<std::uint64_t> timestamps, std::vector<difficulty_type> cumulative_difficulties, size_t version) {
 
-/************************************************************************************
-*****   NOTE:  MAKING THIS A NO-OP, 
-*****   UNTIL I CAN FIGURE OUT THE boost:: difficulty_type conversion crap!
-*************************************************************************************/
-    return 1;
-  }
-
-/***  Delete the above 2 lines and uncomment out the function when ready to work on it
-**************************************************************************************
-
     const int64_t T = static_cast<int64_t>(version < 8 ? DIFFICULTY_TARGET : DIFFICULTY_TARGET_V8);
     size_t N = version < 8 ? DIFFICULTY_WINDOW_V6 : DIFFICULTY_WINDOW_V8;
     int64_t FTL = static_cast<int64_t>(version < 8 ? CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6 : CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V8);
@@ -482,7 +474,7 @@ namespace cryptonote {
 
     double LWMA(0), sum_inverse_D(0), harmonic_mean_D(0), nextDifficulty(0);
     int64_t solveTime(0);
-    uint64_t difficulty(0), next_difficulty(0);
+    difficulty_type difficulty(0), next_difficulty(0);
 
     // Loop through N most recent blocks. N is most recently solved block.
     for (size_t i = 1; i <= N; i++) {
@@ -496,14 +488,15 @@ namespace cryptonote {
     harmonic_mean_D = N / sum_inverse_D;
 
     // Limit LWMA same as Bitcoin's 1/4 in case something unforeseen occurs.
-    if (static_cast<int64_t>(boost::math::round(LWMA)) < T / 4)
+    //if (static_cast<int64_t>(boost::math::round(LWMA)) < T / 4)
+    if (static_cast<int64_t>(LWMA) < T / 4)
       LWMA = static_cast<double>(T / 4);
 
     nextDifficulty = harmonic_mean_D * T / LWMA * adjust;
 
     // No limits should be employed, but this is correct way to employ a 20% symmetrical limit:
     // nextDifficulty=max(previous_Difficulty*0.8,min(previous_Difficulty/0.8, next_Difficulty));
-    next_difficulty = static_cast<uint64_t>(nextDifficulty);
+    next_difficulty = static_cast<difficulty_type>(nextDifficulty);
 
     if (next_difficulty == 0) {
       return 1;
@@ -511,7 +504,6 @@ namespace cryptonote {
 
     return next_difficulty;
   }
-****************************************************************************/
 
   std::string hex(difficulty_type v)
   {
