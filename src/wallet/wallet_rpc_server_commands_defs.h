@@ -1,3 +1,4 @@
+// Copyright (c) 2017-2021, The Masari Project
 // Copyright (c) 2014-2020, The Monero Project
 // 
 // All rights reserved.
