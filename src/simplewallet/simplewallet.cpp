@@ -473,7 +473,7 @@ namespace
     std::stringstream prompt;
     prompt << sw::tr("For URL: ") << url
            << ", " << dnssec_str << std::endl
-           << sw::tr(" Monero Address = ") << addresses[0]
+           << sw::tr(" Masari Address = ") << addresses[0]
            << std::endl
            << sw::tr("Is this OK?")
     ;
