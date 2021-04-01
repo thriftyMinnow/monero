@@ -155,7 +155,7 @@ static std::string get_human_readable_timespan(uint64_t seconds);
 
 namespace
 {
-  const std::array<const char* const, 5> allowed_priority_strings = {{"default", "unimportant", "normal", "elevated", "priority"}};
+  const std::array<const char* const, 4> allowed_priority_strings = {{"default", "low", "medium", "high"}};
   const auto arg_wallet_file = wallet_args::arg_wallet_file();
   const auto arg_rpc_client_secret_key = wallet_args::arg_rpc_client_secret_key();
   const command_line::arg_descriptor<std::string> arg_generate_new_wallet = {"generate-new-wallet", sw::tr("Generate new wallet and save it to <arg>"), ""};
@@ -939,7 +939,7 @@ bool simple_wallet::print_fee_info(const std::vector<std::string> &args/* = std:
   message_writer() << (boost::format(tr("Current fee is %s %s per %s")) % print_money(base_fee) % cryptonote::get_unit(cryptonote::get_default_decimal_point()) % base).str();
 
   std::vector<uint64_t> fees;
-  for (uint32_t priority = 1; priority <= 4; ++priority)
+  for (uint32_t priority = 1; priority <= 3; ++priority)
   {
     uint64_t mult = m_wallet->get_fee_multiplier(priority);
     fees.push_back(base_fee * typical_size * mult);
@@ -961,7 +961,7 @@ bool simple_wallet::print_fee_info(const std::vector<std::string> &args/* = std:
     return true;
   }
 
-  for (uint32_t priority = 1; priority <= 4; ++priority)
+  for (uint32_t priority = 1; priority <= 3; ++priority)
   {
     uint64_t nblocks_low = blocks[priority - 1].first;
     uint64_t nblocks_high = blocks[priority - 1].second;
@@ -2507,7 +2507,7 @@ bool simple_wallet::set_default_priority(const std::vector<std::string> &args/* 
   {
     if (strchr(args[1].c_str(), '-'))
     {
-      fail_msg_writer() << tr("priority must be either 0, 1, 2, 3, or 4, or one of: ") << join_priority_strings(", ");
+      fail_msg_writer() << tr("priority must be 0, 1, 2, or 3 ");
       return true;
     }
     if (args[1] == "0")
@@ -2528,9 +2528,9 @@ bool simple_wallet::set_default_priority(const std::vector<std::string> &args/* 
       if (!found)
       {
         priority = boost::lexical_cast<int>(args[1]);
-        if (priority < 1 || priority > 4)
+        if (priority < 1 || priority > 3)
         {
-          fail_msg_writer() << tr("priority must be either 0, 1, 2, 3, or 4, or one of: ") << join_priority_strings(", ");
+          fail_msg_writer() << tr("priority must be 0, 1, 2, or 3");
           return true;
         }
       }
@@ -2546,7 +2546,7 @@ bool simple_wallet::set_default_priority(const std::vector<std::string> &args/* 
   }
   catch(const boost::bad_lexical_cast &)
   {
-    fail_msg_writer() << tr("priority must be either 0, 1, 2, 3, or 4, or one of: ") << join_priority_strings(", ");
+    fail_msg_writer() << tr("priority must be 0, 1, 2, or 3");
     return true;
   }
   catch(...)
@@ -3299,8 +3299,8 @@ simple_wallet::simple_wallet()
                                   "  Whether to automatically synchronize new blocks from the daemon.\n "
                                   "refresh-type <full|optimize-coinbase|no-coinbase|default>\n "
                                   "  Set the wallet's refresh behaviour.\n "
-                                  "priority [0|1|2|3|4]\n "
-                                  "  Set the fee to default/unimportant/normal/elevated/priority.\n "
+                                  "priority [0|1|2|3]\n "
+                                  "  Set the fee to default/low/medium/high.\n "
                                   "confirm-missing-payment-id <1|0> (obsolete)\n "
                                   "ask-password <0|1|2   (or never|action|decrypt)>\n "
                                   "  action: ask the password before many actions such as transfer, etc\n "
@@ -3800,7 +3800,7 @@ bool simple_wallet::set_variable(const std::vector<std::string> &args)
     CHECK_SIMPLE_VARIABLE("store-tx-info", set_store_tx_info, tr("0 or 1"));
     CHECK_SIMPLE_VARIABLE("auto-refresh", set_auto_refresh, tr("0 or 1"));
     CHECK_SIMPLE_VARIABLE("refresh-type", set_refresh_type, tr("full (slowest, no assumptions); optimize-coinbase (fast, assumes the whole coinbase is paid to a single address); no-coinbase (fastest, assumes we receive no coinbase transaction), default (same as optimize-coinbase)"));
-    CHECK_SIMPLE_VARIABLE("priority", set_default_priority, tr("0, 1, 2, 3, or 4, or one of ") << join_priority_strings(", "));
+    CHECK_SIMPLE_VARIABLE("priority", set_default_priority, tr("0, 1, 2, or 3"));
     CHECK_SIMPLE_VARIABLE("ask-password", set_ask_password, tr("0|1|2 (or never|action|decrypt)"));
     CHECK_SIMPLE_VARIABLE("unit", set_unit, tr("monero, millinero, micronero, nanonero, piconero"));
     CHECK_SIMPLE_VARIABLE("min-outputs-count", set_min_output_count, tr("unsigned integer"));
