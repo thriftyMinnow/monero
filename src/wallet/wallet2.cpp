@@ -1165,8 +1165,8 @@ wallet2::wallet2(network_type nettype, uint64_t kdf_rounds, bool unattended, std
   m_confirm_backlog_threshold(0),
   m_confirm_export_overwrite(true),
   m_auto_low_priority(true),
-  m_segregate_pre_fork_outputs(true),
-  m_key_reuse_mitigation2(true),
+  m_segregate_pre_fork_outputs(false),
+  m_key_reuse_mitigation2(false),
   m_segregation_height(0),
   m_ignore_fractional_outputs(true),
   m_ignore_outputs_above(MONEY_SUPPLY),
@@ -4090,8 +4090,8 @@ bool wallet2::load_keys_buf(const std::string& keys_buf, const epee::wipeable_st
     m_confirm_backlog_threshold = 0;
     m_confirm_export_overwrite = true;
     m_auto_low_priority = true;
-    m_segregate_pre_fork_outputs = true;
-    m_key_reuse_mitigation2 = true;
+    m_segregate_pre_fork_outputs = false;
+    m_key_reuse_mitigation2 = false;
     m_segregation_height = 0;
     m_ignore_fractional_outputs = true;
     m_ignore_outputs_above = MONEY_SUPPLY;
