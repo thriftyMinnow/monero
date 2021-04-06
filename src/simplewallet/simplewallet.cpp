@@ -7526,7 +7526,7 @@ bool simple_wallet::donate(const std::vector<std::string> &args_)
   if (!payment_id_str.empty())
     local_args.push_back(payment_id_str);
   if (m_wallet->nettype() == cryptonote::MAINNET)
-    message_writer() << (boost::format(tr("Donating %s %s to The Masari Project (donate.masari.org or %s).")) % amount_str % cryptonote::get_unit(cryptonote::get_default_decimal_point()) % MASARI_DONATION_ADDR).str();
+    message_writer() << (boost::format(tr("Donating %s %s to The Masari Project (donate.getmasari.org or %s).")) % amount_str % cryptonote::get_unit(cryptonote::get_default_decimal_point()) % MASARI_DONATION_ADDR).str();
   else
     message_writer() << (boost::format(tr("Donating %s %s to %s.")) % amount_str % cryptonote::get_unit(cryptonote::get_default_decimal_point()) % address_str).str();
   transfer(local_args);
