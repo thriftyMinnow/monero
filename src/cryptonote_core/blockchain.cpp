@@ -1696,10 +1696,15 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
   b.timestamp = time(NULL);
 
   uint64_t median_ts;
-  if (!check_block_timestamp(b, median_ts))
-  {
-    b.timestamp = median_ts;
+  // NOTE: commenting out XMR block here, due to Masari changes to get timestamp relative to top block
+  // if (!check_block_timestamp(b, median_ts))
+  // {
+  //   b.timestamp = median_ts;
+  // }
+  if (!check_block_timestamp(b, median_ts)) {
+    b.timestamp = std::max(median_ts, m_db->get_top_block_timestamp() - CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6);
   }
+
 
   CHECK_AND_ASSERT_MES(diffic, false, "difficulty overhead.");
 
@@ -3802,7 +3807,8 @@ bool Blockchain::check_block_timestamp(std::vector<uint64_t>& timestamps, const 
   uint8_t hf_version = get_current_hard_fork_version();
   size_t blockchain_timestamp_check_window = hf_version < 2 ? BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW : BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW_V2;
 
-  uint64_t top_block_timestamp = timestamps.empty() ? b.timestamp : timestamps.back();
+  // uint64_t top_block_timestamp = timestamps.empty() ? b.timestamp : timestamps.back();  //NOTE: commenting out XMR 17 line
+  uint64_t top_block_timestamp = m_db->get_top_block_timestamp();
   if (hf_version > 5 && b.timestamp < top_block_timestamp - CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6)
   {
     MERROR_VER("Timestamp " << b.timestamp << " of block id: " << get_block_hash(b) << ", is less than top block timestamp - FTL = " << top_block_timestamp - CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT_V6);
