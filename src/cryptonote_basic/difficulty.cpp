@@ -35,6 +35,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include <boost/math/special_functions/round.hpp>
 
 #include "include_base_utils.h"
 #include "int-util.h"
@@ -489,8 +490,7 @@ namespace cryptonote {
     harmonic_mean_D = N / sum_inverse_D;
 
     // Limit LWMA same as Bitcoin's 1/4 in case something unforeseen occurs.
-    //if (static_cast<int64_t>(boost::math::round(LWMA)) < T / 4)
-    if (static_cast<int64_t>(LWMA) < T / 4)
+    if (static_cast<int64_t>(boost::math::round(LWMA)) < T / 4)
       LWMA = static_cast<double>(T / 4);
 
     nextDifficulty = harmonic_mean_D * T / LWMA * adjust;
