@@ -87,6 +87,7 @@ public:
     void setSeedLanguage(const std::string &arg) override;
     // void setListener(Listener *) {}
     int status() const override;
+    bool isMultisig() const;
     std::string errorString() const override;
     void statusWithErrorString(int& status, std::string& errorString) const override;
     bool setPassword(const std::string &password) override;
