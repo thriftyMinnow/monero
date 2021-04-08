@@ -133,12 +133,13 @@ namespace cryptonote
     };
 
   public:
-    rpc_payment(const cryptonote::account_public_address &address, uint64_t diff, uint64_t credits_per_hash_found);
+    rpc_payment(const cryptonote::account_public_address &address, std::string address_str, uint64_t diff, uint64_t credits_per_hash_found);
     uint64_t balance(const crypto::public_key &client, int64_t delta = 0);
     bool pay(const crypto::public_key &client, uint64_t ts, uint64_t payment, const std::string &rpc, bool same_ts, uint64_t &credits);
     bool get_info(const crypto::public_key &client, const std::function<bool(const cryptonote::blobdata&, cryptonote::block&, uint64_t &seed_height, crypto::hash &seed_hash)> &get_block_template, cryptonote::blobdata &hashing_blob, uint64_t &seed_height, crypto::hash &seed_hash, const crypto::hash &top, uint64_t &diff, uint64_t &credits_per_hash_found, uint64_t &credits, uint32_t &cookie);
     bool submit_nonce(const crypto::public_key &client, uint32_t nonce, const crypto::hash &top, int64_t &error_code, std::string &error_message, uint64_t &credits, crypto::hash &hash, cryptonote::block &block, uint32_t cookie, bool &stale);
     const cryptonote::account_public_address &get_payment_address() const { return m_address; }
+    const std::string get_payment_address_str() const { return m_address_str; }
     bool foreach(const std::function<bool(const crypto::public_key &client, const client_info &info)> &f) const;
     unsigned int flush_by_age(time_t seconds = 0);
     uint64_t get_hashes(unsigned int seconds) const;
@@ -175,6 +176,7 @@ namespace cryptonote
 
   private:
     cryptonote::account_public_address m_address;
+    std::string m_address_str;
     uint64_t m_diff;
     uint64_t m_credits_per_hash_found;
     serializable_unordered_map<crypto::public_key, client_info> m_client_info;

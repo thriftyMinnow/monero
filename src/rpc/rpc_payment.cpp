@@ -75,8 +75,9 @@ namespace cryptonote
   {
   }
 
-  rpc_payment::rpc_payment(const cryptonote::account_public_address &address, uint64_t diff, uint64_t credits_per_hash_found):
+  rpc_payment::rpc_payment(const cryptonote::account_public_address &address, std::string address_str, uint64_t diff, uint64_t credits_per_hash_found):
     m_address(address),
+    m_address_str(address_str),
     m_diff(diff),
     m_credits_per_hash_found(credits_per_hash_found),
     m_credits_total(0),

@@ -279,8 +279,8 @@ namespace cryptonote
       }
     }
     disable_rpc_ban = rpc_config->disable_rpc_ban;
-    std::string address = command_line::get_arg(vm, arg_rpc_payment_address);
-    if (!address.empty() && allow_rpc_payment)
+    std::string address_str = command_line::get_arg(vm, arg_rpc_payment_address);
+    if (!address_str.empty() && allow_rpc_payment)
     {
       if (!m_restricted && nettype() != FAKECHAIN)
       {
@@ -288,14 +288,14 @@ namespace cryptonote
         return false;
       }
       cryptonote::address_parse_info info;
-      if (!get_account_address_from_str(info, nettype(), address))
+      if (!get_account_address_from_str(info, nettype(), address_str))
       {
-        MFATAL("Invalid payment address: " << address);
+        MFATAL("Invalid payment address: " << address_str);
         return false;
       }
       if (info.is_subaddress)
       {
-        MFATAL("Payment address may not be a subaddress: " << address);
+        MFATAL("Payment address may not be a subaddress: " << address_str);
         return false;
       }
       uint64_t diff = command_line::get_arg(vm, arg_rpc_payment_difficulty);
@@ -306,7 +306,7 @@ namespace cryptonote
         return false;
       }
       m_rpc_payment_allow_free_loopback = command_line::get_arg(vm, arg_rpc_payment_allow_free_loopback);
-      m_rpc_payment.reset(new rpc_payment(info.address, diff, credits));
+      m_rpc_payment.reset(new rpc_payment(info.address, address_str, diff, credits));
       m_rpc_payment->load(command_line::get_arg(vm, cryptonote::arg_data_dir));
       m_p2p.set_rpc_credits_per_hash(RPC_CREDITS_PER_HASH_SCALE * (credits / (float)diff));
     }
@@ -1255,12 +1255,6 @@ namespace cryptonote
       LOG_PRINT_L0(res.status);
       return true;
     }
-    if (info.is_subaddress)
-    {
-      res.status = "Mining to subaddress isn't supported yet";
-      LOG_PRINT_L0(res.status);
-      return true;
-    }
 
     unsigned int concurrency_count = boost::thread::hardware_concurrency() * 4;
 
@@ -1285,7 +1279,7 @@ namespace cryptonote
       res.status = "Already mining";
       return true;
     }
-    if(!miner.start(info.address, static_cast<size_t>(req.threads_count), req.do_background_mining, req.ignore_battery))
+    if(!miner.start(req.miner_address, static_cast<size_t>(req.threads_count), req.do_background_mining, req.ignore_battery))
     {
       res.status = "Failed, mining not started";
       LOG_PRINT_L0(res.status);
@@ -1330,9 +1324,10 @@ namespace cryptonote
       res.threads_count = lMiner.get_threads_count();
       res.block_reward = lMiner.get_block_reward();
     }
-    const account_public_address& lMiningAdr = lMiner.get_mining_address();
+    //const account_public_address& lMiningAdr = lMiner.get_mining_address();
     if (lMiner.is_mining() || lMiner.get_is_background_mining_enabled())
-      res.address = get_account_address_as_str(nettype(), false, lMiningAdr);
+      // res.address = get_account_address_as_str(nettype(), false, lMiningAdr);
+      res.address = lMiner.get_mining_address();
     const uint8_t major_version = m_core.get_blockchain_storage().get_current_hard_fork_version();
     const unsigned variant = major_version >= 7 ? major_version - 6 : 0;
     switch (variant)
@@ -1680,7 +1675,7 @@ namespace cryptonote
     return 0;
   }
   //------------------------------------------------------------------------------------------------------------------------------
-  bool core_rpc_server::get_block_template(const account_public_address &address, const crypto::hash *prev_block, const cryptonote::blobdata &extra_nonce, size_t &reserved_offset, cryptonote::difficulty_type  &difficulty, uint64_t &height, uint64_t &expected_reward, block &b, uint64_t &seed_height, crypto::hash &seed_hash, crypto::hash &next_seed_hash, epee::json_rpc::error &error_resp)
+  bool core_rpc_server::get_block_template(std::string address, const crypto::hash *prev_block, const cryptonote::blobdata &extra_nonce, size_t &reserved_offset, cryptonote::difficulty_type  &difficulty, uint64_t &height, uint64_t &expected_reward, block &b, uint64_t &seed_height, crypto::hash &seed_hash, crypto::hash &next_seed_hash, epee::json_rpc::error &error_resp)
   {
     b = boost::value_initialized<cryptonote::block>();
     if(!m_core.get_block_template(b, prev_block, address, difficulty, height, expected_reward, extra_nonce, seed_height, seed_hash))
@@ -1809,7 +1804,7 @@ namespace cryptonote
     }
     uint64_t seed_height;
     crypto::hash seed_hash, next_seed_hash;
-    if (!get_block_template(info.address, req.prev_block.empty() ? NULL : &prev_block, blob_reserve, reserved_offset, wdiff, res.height, res.expected_reward, b, res.seed_height, seed_hash, next_seed_hash, error_resp))
+    if (!get_block_template(req.wallet_address, req.prev_block.empty() ? NULL : &prev_block, blob_reserve, reserved_offset, wdiff, res.height, res.expected_reward, b, res.seed_height, seed_hash, next_seed_hash, error_resp))
       return false;
     if (b.major_version >= RX_BLOCK_VERSION)
     {
@@ -3101,7 +3096,7 @@ namespace cryptonote
       cryptonote::difficulty_type difficulty;
       uint64_t height, expected_reward;
       size_t reserved_offset;
-      if (!get_block_template(m_rpc_payment->get_payment_address(), NULL, extra_nonce, reserved_offset, difficulty, height, expected_reward, b, seed_height, seed_hash, next_seed_hash, error_resp))
+      if (!get_block_template(m_rpc_payment->get_payment_address_str(), NULL, extra_nonce, reserved_offset, difficulty, height, expected_reward, b, seed_height, seed_hash, next_seed_hash, error_resp))
         return false;
       return true;
     }, hashing_blob, res.seed_height, seed_hash, top_hash, res.diff, res.credits_per_hash_found, res.credits, res.cookie))
