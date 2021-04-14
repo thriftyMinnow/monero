@@ -70,6 +70,10 @@ extern "C" {
   static void cn_slow_hash_2(const void *data, size_t length, char *hash) {
     return cn_slow_hash(data, length, hash, 2/*variant*/, 0/*prehashed*/, 0/*height*/);
   }
+  /* NOTE: adding variant 3 for Masari */
+  static void cn_slow_hash_3(const void *data, size_t length, char *hash) {
+    return cn_slow_hash(data, length, hash, 3/*variant*/, 0/*prehashed*/, 0/*height*/);
+  }
   static void cn_slow_hash_4(const void *data, size_t, char *hash) {
     const V4_Data* p = reinterpret_cast<const V4_Data*>(data);
     return cn_slow_hash(p->data, p->length, hash, 4/*variant*/, 0/*prehashed*/, p->height);
@@ -84,7 +88,8 @@ struct hash_func {
 } hashes[] = {{"fast", cn_fast_hash}, {"slow", cn_slow_hash_0}, {"tree", hash_tree},
   {"extra-blake", hash_extra_blake}, {"extra-groestl", hash_extra_groestl},
   {"extra-jh", hash_extra_jh}, {"extra-skein", hash_extra_skein},
-  {"slow-1", cn_slow_hash_1}, {"slow-2", cn_slow_hash_2}, {"slow-4", cn_slow_hash_4}};
+  {"slow-1", cn_slow_hash_1}, {"slow-2", cn_slow_hash_2}, {"slow-3", cn_slow_hash_3},
+  {"slow-4", cn_slow_hash_4}};
 
 int test_variant2_int_sqrt();
 int test_variant2_int_sqrt_ref();

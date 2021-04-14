@@ -639,7 +639,20 @@ namespace cryptonote
       }
       rx_slow_hash(main_height, seed_height, hash.data, bd.data(), bd.size(), res.data, seed_hash ? 0 : miners, !!seed_hash);
     } else {
-      const int pow_variant = b.major_version >= 7 ? b.major_version - 6 : 0;
+      // NOTE:  Using Masari logic here for the variant #s
+      int pow_variant;
+      if(b.major_version < 5) {
+        pow_variant = 0;
+      }
+      else if (b.major_version < 7) {
+        pow_variant = 1;
+      }
+      else if (b.major_version < 8){
+        pow_variant = 2;
+      } else {
+        pow_variant = 3;
+      }
+      // const int pow_variant = b.major_version >= 7 ? b.major_version - 6 : 0;
       crypto::cn_slow_hash(bd.data(), bd.size(), res, pow_variant, height);
     }
     return true;
