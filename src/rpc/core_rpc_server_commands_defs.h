@@ -1458,6 +1458,34 @@ namespace cryptonote
     typedef epee::misc_utils::struct_init<response_t> response;
   };
 
+  struct COMMAND_RPC_GET_BLOCKS_JSON
+  {
+    struct request_t: public rpc_access_request_base
+    {
+      std::vector<uint64_t> heights;
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE_PARENT(rpc_access_request_base)
+        KV_SERIALIZE(heights)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+
+    struct response_t: public rpc_access_response_base
+    {
+      std::string status;
+      std::vector<std::string> blocks;
+      bool untrusted;
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE_PARENT(rpc_access_response_base)
+        KV_SERIALIZE(status)
+        KV_SERIALIZE(blocks)
+        KV_SERIALIZE(untrusted)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<response_t> response;
+  };
+
+  
   struct tx_backlog_entry
   {
     uint64_t weight;

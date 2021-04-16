@@ -1538,6 +1538,27 @@ namespace cryptonote
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------------
+  bool core_rpc_server::on_get_blocks_json(const COMMAND_RPC_GET_BLOCKS_JSON::request& req, COMMAND_RPC_GET_BLOCKS_JSON::response& res, const connection_context *ctx)
+  {
+    RPC_TRACKER(get_blocks_json);
+    bool r;
+    if (use_bootstrap_daemon_if_necessary<COMMAND_RPC_GET_BLOCKS_JSON>(invoke_http_mode::JON, "/get_blocks_json", req, res, r))
+      return r;
+
+    std::cout << req.heights.size();
+    for (size_t i = 0; i < req.heights.size(); i++)
+    {
+      block blk;
+      bool orphan = false;
+      crypto::hash block_hash = m_core.get_block_id_by_height(req.heights[i]);
+      bool have_block = m_core.get_block_by_hash(block_hash, blk, &orphan);
+    
+      res.blocks.push_back(obj_to_json_str(blk));
+    }
+    res.status = CORE_RPC_STATUS_OK;
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------------
   bool core_rpc_server::on_get_transaction_pool_hashes(const COMMAND_RPC_GET_TRANSACTION_POOL_HASHES::request& req, COMMAND_RPC_GET_TRANSACTION_POOL_HASHES::response& res, const connection_context *ctx)
   {
     RPC_TRACKER(get_transaction_pool_hashes);
