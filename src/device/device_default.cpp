@@ -325,7 +325,7 @@ namespace hw {
                 additional_tx_public_keys.push_back(additional_txkey.pub);
             }
 
-            if (tx_version > 1)
+            if (tx_version >= 1)
             {
                 crypto::secret_key scalar1;
                 derivation_to_scalar(derivation, output_index, scalar1);
