@@ -889,6 +889,7 @@ namespace cryptonote
         continue;
       }
 
+      // NOTE:  should this if statement be removed? Does it apply to Masari?
       if (tx_info[n].tx->version < 2)
         continue;
       const rct::rctSig &rv = tx_info[n].tx->rct_signatures;
@@ -1606,6 +1607,20 @@ namespace cryptonote
     return m_blockchain_storage.get_db().get_block_cumulative_difficulty(height);
   }
   //-----------------------------------------------------------------------------------------------
+  difficulty_type core::get_block_weight(uint64_t height) const
+  {
+    difficulty_type diff, weight, cum_diff, cum_weight;
+    m_blockchain_storage.get_db().get_height_info(height, diff, weight, cum_diff, cum_weight);
+    return weight;
+  }
+  //-----------------------------------------------------------------------------------------------
+  difficulty_type core::get_uncle_weight(uint64_t height) const
+  {
+    difficulty_type diff, weight, cum_diff, cum_weight;
+    m_blockchain_storage.get_db().get_uncle_height_info(height, diff, weight, cum_diff, cum_weight);
+    return weight;
+  }
+  //-----------------------------------------------------------------------------------------------
   size_t core::get_pool_transactions_count(bool include_sensitive_txes) const
   {
     return m_mempool.get_transactions_count(include_sensitive_txes);
@@ -1689,6 +1704,20 @@ namespace cryptonote
     return m_blockchain_storage.get_block_by_hash(h, blk, orphan);
   }
   //-----------------------------------------------------------------------------------------------
+  bool core::get_uncle_by_hash(const crypto::hash &h, block &uncle) const
+  {
+    try 
+    {
+      uncle = m_blockchain_storage.get_db().get_uncle(h);
+      return true;
+    }
+    catch (const BLOCK_DNE& e)
+    {
+      MDEBUG("No uncle block with hash " << h << " exists in the database");
+      return false;
+    }
+  }
+  //-----------------------------------------------------------------------------------------------
   std::string core::print_pool(bool short_format) const
   {
     return m_mempool.print_pool(short_format);
@@ -1729,6 +1758,23 @@ namespace cryptonote
     m_diff_recalc_interval.do_call(boost::bind(&core::recalculate_difficulties, this));
     m_miner.on_idle();
     m_mempool.on_idle();
+    return true;
+  }
+  //-----------------------------------------------------------------------------------------------
+  bool core::check_fork_time()
+  {
+    HardFork::State state = m_blockchain_storage.get_hard_fork_state();
+    const el::Level level = el::Level::Warning;
+    switch (state) {
+      case HardFork::LikelyForked:
+        MCLOG_RED(level, "global", "**********************************************************************");
+        MCLOG_RED(level, "global", "Last scheduled hard fork is too far in the past.");
+        MCLOG_RED(level, "global", "We are most likely forked from the network. Daemon update needed now.");
+        MCLOG_RED(level, "global", "**********************************************************************");
+        break;
+      default:
+        break;
+    }
     return true;
   }
   //-----------------------------------------------------------------------------------------------

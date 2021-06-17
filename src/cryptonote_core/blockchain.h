@@ -1,3 +1,4 @@
+// Copyright (c) 2018-2021, The Masari Project
 // Copyright (c) 2014-2020, The Monero Project
 //
 // All rights reserved.
@@ -223,6 +224,16 @@ namespace cryptonote
     crypto::hash get_pending_block_id_by_height(uint64_t height) const;
 
     /**
+     * @brief gets uncle at a given height
+     *
+     * @param height hte height to fetch from
+     * @param uncle return-by-reference variable
+     *
+     * @return true if uncle found else false
+     */
+    bool get_uncle_from_height(uint64_t height, block &uncle);
+
+    /**
      * @brief gets the block with a given hash
      *
      * @param h the hash to look for
@@ -231,7 +242,7 @@ namespace cryptonote
      *
      * @return true if the block was found, else false
      */
-    bool get_block_by_hash(const crypto::hash &h, block &blk, bool *orphan = NULL) const;
+    bool get_block_by_hash(const crypto::hash &h, block &blk, bool *orphan = NULL, bool search_uncles = false) const;
 
     /**
      * @brief performs some preprocessing on a group of incoming blocks to speed up verification
@@ -689,6 +700,30 @@ namespace cryptonote
     difficulty_type block_difficulty(uint64_t i) const;
 
     /**
+     * @brief gets the supplemental difficulty added to a nephew block
+     *
+     * @param current_diffic current nephew's difficulty
+     *
+     * @return the additional difficulty
+     */
+    difficulty_type get_added_nephew_difficulty(difficulty_type current_diffic);
+
+    /**
+     * @brief gets the difficulty of the block given a hash
+     *
+     * Handles blocks from alternative chains
+     *
+     * @param h the hash
+     * @param difficulty return-by-reference difficulty
+     * @param weight return-by-reference weight
+     * @param cumulative_difficulty return-by-reference cumulative difficulty
+     * @param cumulative_weight return-by-reference cumulative weight
+     *
+     * @return if fetch was successful
+     */
+    bool get_block_info(const crypto::hash h, difficulty_type &difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight);
+
+    /**
      * @brief gets blocks based on a list of block hashes
      *
      * @tparam t_ids_container a standard-iterable container
@@ -696,12 +731,13 @@ namespace cryptonote
      * @tparam t_missed_container a standard-iterable container
      * @param block_ids a container of block hashes for which to get the corresponding blocks
      * @param blocks return-by-reference a container to store result blocks in
+     * @param uncles return-by-reference a container to store result uncles for blocks being fetched
      * @param missed_bs return-by-reference a container to store missed blocks in
      *
      * @return false if an unexpected exception occurs, else true
      */
     template<class t_ids_container, class t_blocks_container, class t_missed_container>
-    bool get_blocks(const t_ids_container& block_ids, t_blocks_container& blocks, t_missed_container& missed_bs) const;
+    bool get_blocks(const t_ids_container& block_ids, t_blocks_container& blocks, t_blocks_container& uncles, t_missed_container& missed_bs) const;
 
     /**
      * @brief gets transactions based on a list of transaction hashes
@@ -1124,9 +1160,14 @@ namespace cryptonote
     boost::thread_group m_async_pool;
     std::unique_ptr<boost::asio::io_service::work> m_async_work_idle;
 
+    // all alternative chains
+    blocks_ext_by_hash m_alternative_chains; // crypto::hash -> block_extended_info
+
+    // used for uncle references when an ex-main chain contains an uncle in the new one
+    blocks_ext_by_hash m_disconnected_chain; // crypto::hash -> block_extended_info
+
     // some invalid blocks
     blocks_ext_by_hash m_invalid_blocks;     // crypto::hash -> block_extended_info
-
 
     checkpoints m_checkpoints;
     bool m_enforce_dns_checkpoints;
@@ -1248,6 +1289,63 @@ namespace cryptonote
     bool switch_to_alternative_blockchain(std::list<block_extended_info>& alt_chain, bool discard_disconnected_chain);
 
     /**
+     * @brief pops block with block info
+     *
+     * @param bl return-by-reference block popped from top of chain
+     * @param height return-by-reference height of block
+     * @param difficulty return-by-reference difficulty of block
+     * @param weight return-by-reference weight of block
+     * @param cumulative_difficulty return-by-reference cumulative difficulty of block
+     * @param cumulative_weight return-by-reference cumulative weight of block
+     */
+    void pop_top_block_from_blockchain(block& bl, uint64_t& height, difficulty_type& difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight);
+
+    /**
+     * @brief wrapper for above pop_top_block_from_blockchain method, for when we don't need individual difficulty or weight
+     */
+    void pop_top_block_from_blockchain(block& bl, uint64_t& height, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight);
+
+    /**
+     * @brief gets block info at a given height
+     *
+     * @param height requested height
+     * @param difficulty return-by-reference difficulty
+     * @param weight return-by-reference weight
+     * @param cumulative_difficulty return-by-reference cumulative difficulty
+     * @param cumulative_weight return-by-reference cumulative weight
+     */
+    void get_height_info(const uint64_t& height,
+                         difficulty_type& difficulty,
+                         difficulty_type& weight,
+                         difficulty_type& cumulative_difficulty,
+                         difficulty_type& cumulative_weight);
+
+    /**
+     * @brief wrapper for above get_height_info method, for when we don't need individual difficulty or weight
+     */
+    void get_height_info(const uint64_t& height, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight);
+
+    /**
+     * @brief gets uncle info at a given height
+     *
+     * @param height requested height
+     * @param difficulty return-by-reference difficulty
+     * @param weight return-by-reference weight
+     * @param cumulative_difficulty return-by-reference cumulative difficulty
+     * @param cumulative_weight return-by-reference cumulative weight
+     */
+    void get_uncle_height_info(const uint64_t& height,
+                               difficulty_type& difficulty,
+                               difficulty_type& weight,
+                               difficulty_type& cumulative_difficulty,
+                               difficulty_type& cumulative_weight);
+
+    /**
+     * @brief wrapper for above get_uncle_height_info method, for when we don't need individual difficulty or weight
+     */
+    void get_uncle_height_info(const uint64_t& height, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight);
+
+    /**
      * @brief removes the most recent block from the blockchain
      *
      * @return the block removed
@@ -1355,6 +1453,28 @@ namespace cryptonote
     bool validate_miner_transaction(const block& b, size_t cumulative_block_weight, uint64_t fee, uint64_t& base_reward, uint64_t already_generated_coins, bool &partial_block_reward, uint8_t version);
 
     /**
+     * @brief validate mined uncle
+     *
+     * This function checks that the uncle block mined is accurately represented.
+     *
+     * @param nephew the block containing the mined uncle
+     * @param uncle the uncle being mined
+     *
+     * @return false if anything is found wrong with the mined uncle, otherwise true
+     */
+    bool validate_uncle_block(const block& nephew, const block& uncle);
+
+    /**
+     * @brief validate mined uncle's reward
+     *
+     * @param nephew the block containing the mined uncle
+     * @param uncle the uncle being mined
+     *
+     * @return false if anything is found wrong with the miner transaction, otherwise true
+     */
+    bool validate_uncle_reward(const block& nephew, const block& uncle);
+
+    /**
      * @brief reverts the blockchain to its previous state following a failed switch
      *
      * If Blockchain fails to switch to an alternate chain when it means
@@ -1449,6 +1569,11 @@ namespace cryptonote
     bool check_block_timestamp(const block& b) const { uint64_t median_ts; return check_block_timestamp(b, median_ts); }
 
     /**
+     * @brief checks and returns median block timestamp as defined by protocol
+     */
+    bool check_median_block_timestamp(const block& b, uint64_t& median_ts) const;
+
+    /**
      * @brief checks a block's timestamp
      *
      * If the block is not more recent than the median of the recent
@@ -1461,6 +1586,16 @@ namespace cryptonote
      */
     bool check_block_timestamp(std::vector<uint64_t>& timestamps, const block& b, uint64_t& median_ts) const;
     bool check_block_timestamp(std::vector<uint64_t>& timestamps, const block& b) const { uint64_t median_ts; return check_block_timestamp(timestamps, b, median_ts); }
+
+    /**
+     * @brief get the "adjusted time"
+     *
+     * Currently this simply returns the current time according to the
+     * user's machine.
+     *
+     * @return the current time
+     */
+    uint64_t get_adjusted_time() const;
 
     /**
      * @brief finish an alternate chain's timestamp window from the main chain
@@ -1538,5 +1673,15 @@ namespace cryptonote
      * At some point, may be used to push an update to miners
      */
     void cache_block_template(const block &b, std::string address, const blobdata &nonce, const difficulty_type &diff, uint64_t height, uint64_t expected_reward, uint64_t seed_height, const crypto::hash &seed_hash, uint64_t pool_cookie);
+
+    /**
+     * @brief builds an alternative chain for a requested alt block
+     *
+     * @param h the hash
+     * @param alt_chain the altchain list in which to store it at
+     *
+     * @return if built successfully
+     */
+    bool get_alt_height_info(const crypto::hash h, difficulty_type &difficulty, difficulty_type &weight, difficulty_type &cumulative_difficulty, difficulty_type &cumulative_weight);
   };
 }  // namespace cryptonote

@@ -1,3 +1,4 @@
+// Copyright (c) 2018-2021, The Masari Project
 // Copyright (c) 2014-2020, The Monero Project
 //
 // All rights reserved.
@@ -30,6 +31,7 @@
 
 #pragma once
 
+#include <list>
 #include <string>
 #include <exception>
 #include <boost/program_options.hpp>
@@ -103,6 +105,7 @@ namespace cryptonote
 /** a pair of <transaction hash, output index>, typedef for convenience */
 typedef std::pair<crypto::hash, uint64_t> tx_out_index;
 
+extern const command_line::arg_descriptor<std::string> arg_db_type;
 extern const command_line::arg_descriptor<std::string> arg_db_sync_mode;
 extern const command_line::arg_descriptor<bool, false> arg_db_salvage;
 
@@ -186,7 +189,6 @@ struct txpool_tx_meta_t
     return matches_category(get_relay_method(), category);
   }
 };
-
 
 #define DBF_SAFE       1
 #define DBF_FAST       2
@@ -396,6 +398,7 @@ private:
    * @param block_weight the weight of the block (transactions and all)
    * @param long_term_block_weight the long term block weight of the block (transactions and all)
    * @param cumulative_difficulty the accumulated difficulty after this block
+   * @param cumulative_weight the accumulated weight including uncles after this block
    * @param coins_generated the number of coins generated total after this block
    * @param blk_hash the hash of the block
    */
@@ -403,6 +406,7 @@ private:
                 , size_t block_weight
                 , uint64_t long_term_block_weight
                 , const difficulty_type& cumulative_difficulty
+                , const difficulty_type& cumulative_weight
                 , const uint64_t& coins_generated
                 , uint64_t num_rct_outs
                 , const crypto::hash& blk_hash
@@ -856,9 +860,31 @@ public:
                             , size_t block_weight
                             , uint64_t long_term_block_weight
                             , const difficulty_type& cumulative_difficulty
+                            , const difficulty_type& cumulative_weight
                             , const uint64_t& coins_generated
                             , const std::vector<std::pair<transaction, blobdata>>& txs
                             );
+
+  /**
+   * @brief add the uncle and metadata to the db
+   *
+   * Similar description to add_block above
+   *
+   * @param uncle the uncle block to be added
+   * @param uncle_size the size of the uncle block (transactions and all)
+   * @param cumulative_difficulty the accumulated difficulty at height when this uncle was mined
+   * @param cumulative_weight the accumulated weight at height when this uncle was mined
+   * @param coins_generated the number of coins generated total after this uncle block was mined
+   * @param uncle_hash the hash of the uncle block
+   * @param height the height of where the uncle block was mined
+   */
+  virtual void add_uncle(const block& uncle,
+                         const size_t& uncle_size,
+                         const difficulty_type& cumulative_difficulty,
+                         const difficulty_type& cumulative_weight,
+                         const uint64_t& coins_generated,
+                         const crypto::hash& uncle_hash,
+                         const uint64_t height) = 0;
 
   /**
    * @brief checks if a block exists
@@ -869,6 +895,16 @@ public:
    * @return true of the block exists, otherwise false
    */
   virtual bool block_exists(const crypto::hash& h, uint64_t *height = NULL) const = 0;
+
+  /**
+   * @brief checks if uncle exists
+   *
+   * @param h the hash of the requested uncle
+   * @param height if non NULL, returns the uncle's height if found
+   *
+   * @return true if the uncle exists, otherwise false
+   */
+  virtual bool uncle_exists(const crypto::hash& h, uint64_t *height = NULL) const = 0;
 
   /**
    * @brief fetches the block with the given hash
@@ -882,6 +918,32 @@ public:
    * @return the block requested
    */
   virtual cryptonote::blobdata get_block_blob(const crypto::hash& h) const = 0;
+
+  /**
+   * @brief fetches the uncle block with the given hash
+   *
+   * The subclass should return the requested block.
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param h the hash to look for
+   *
+   * @return the block requested
+   */
+  virtual cryptonote::blobdata get_uncle_blob(const crypto::hash& h) const = 0;
+
+  /**
+   * @brief fetches the uncle with the given hash
+   *
+   * Returns the requested block.
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param h the hash to look for
+   *
+   * @return the block requested
+   */
+  virtual block get_uncle(const crypto::hash& h) const;
 
   /**
    * @brief fetches the block with the given hash
@@ -910,6 +972,19 @@ public:
   virtual uint64_t get_block_height(const crypto::hash& h) const = 0;
 
   /**
+   * @brief gets the height of the uncle block with a given hash
+   *
+   * The subclass should return the requested height.
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param h the hash to look for
+   *
+   * @return the height
+   */
+  virtual uint64_t get_uncle_height(const crypto::hash& h) const = 0;
+
+  /**
    * @brief fetch a block header
    *
    * The subclass should return the block header from the block with
@@ -936,6 +1011,31 @@ public:
    * @return the block blob
    */
   virtual cryptonote::blobdata get_block_blob_from_height(const uint64_t& height) const = 0;
+
+  /**
+   * @brief fetch an uncle block blob by mined height
+   *
+   * The subclass should return the uncle block at the given height.
+   *
+   * If the block does not exist, that is to say if the blockchain is not
+   * that high, then the subclass should throw BLOCK_DNE
+   *
+   * @param height the height to look for
+   *
+   * @return the uncle block blob
+   */
+  virtual cryptonote::blobdata get_uncle_blob_from_height(const uint64_t& height) const = 0;
+
+  /**
+   * @brief fetch an uncle by height
+   *
+   * If the block does not exist, should throw a BLOCK_DNE exception
+   *
+   * @param height the height to look for
+   *
+   * @return the uncle block
+   */
+  block get_uncle_from_height(const uint64_t& height) const;
 
   /**
    * @brief fetch a block by height
@@ -1040,6 +1140,19 @@ public:
   virtual difficulty_type get_block_difficulty(const uint64_t& height) const = 0;
 
   /**
+   * @brief fetch a block's difficulty by hash id (main chain)
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param id the hash id of the block requested
+   *
+   * @return the cumulative difficulty
+   */
+  virtual difficulty_type get_block_difficulty(const crypto::hash& id) const;
+
+  virtual difficulty_type get_uncle_difficulty(const crypto::hash& id) const;
+
+  /**
    * @brief correct blocks cumulative difficulties that were incorrectly calculated due to the 'difficulty drift' bug
    *
    * If the block does not exist, the subclass should throw BLOCK_DNE
@@ -1048,6 +1161,17 @@ public:
    * @param new_cumulative_difficulties new cumulative difficulties to be stored
    */
   virtual void correct_block_cumulative_difficulties(const uint64_t& start_height, const std::vector<difficulty_type>& new_cumulative_difficulties) = 0;
+
+  /**
+   * @brief fetch a block's cumulative weight by hash id (main chain)
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param id the hash id of the block requested
+   *
+   * @return the cumulative weight
+   */
+  virtual difficulty_type get_block_cumulative_weight(const crypto::hash& id) const;
 
   /**
    * @brief fetch a block's already generated coins
@@ -1062,6 +1186,17 @@ public:
    * @return the already generated coins
    */
   virtual uint64_t get_block_already_generated_coins(const uint64_t& height) const = 0;
+
+  /**
+   * @brief fetch a block's cumulative difficulty by hash id (main chain)
+   *
+   * If the block does not exist, the subclass should throw BLOCK_DNE
+   *
+   * @param id the hash id of the block requested
+   *
+   * @return the cumulative difficulty
+   */
+  virtual difficulty_type get_block_cumulative_difficulty(const crypto::hash& id) const;
 
   /**
    * @brief fetch a block's long term weight
@@ -1185,6 +1320,64 @@ public:
    */
   virtual void pop_block(block& blk, std::vector<transaction>& txs);
 
+  /**
+   * @brief gets uncle info at a given height
+   *
+   * @param height requested height
+   * @param difficulty return-by-reference difficulty
+   * @param weight return-by-reference weight
+   * @param cumulative_difficulty return-by-reference cumulative difficulty
+   * @param cumulative_weight return-by-reference cumulative weight
+   */
+  virtual void get_uncle_height_info(const uint64_t& height, difficulty_type& difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const = 0;
+
+  /**
+   * @brief gets uncle info given a hash, wrapper for above get_uncle_height_info method
+   */
+  virtual void get_uncle_height_info(const crypto::hash& h, difficulty_type& difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const = 0;
+
+  /**
+   * @brief gets block info at a given height
+   *
+   * @param height requested height
+   * @param difficulty return-by-reference difficulty
+   * @param weight return-by-reference weight
+   * @param cumulative_difficulty return-by-reference cumulative difficulty
+   * @param cumulative_weight return-by-reference cumulative weight
+   */
+  virtual void get_height_info(const uint64_t& height, difficulty_type& difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const = 0;
+
+  /**
+   * @brief gets block info given a hash, wrapper for above get_uncle_height_info method
+   */
+  virtual void get_height_info(const crypto::hash& h, difficulty_type& difficulty, difficulty_type& weight, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const = 0;
+
+  /**
+   * @brief helper method for getting top block height info
+   *
+   * @param cumulative_difficulty return-by-reference cumulative weight of top block
+   * @param cumulative_weight return-by-reference cumulative weight of top block
+   *
+   */
+  void top_height_info(difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const
+  {
+    difficulty_type difficulty;
+    difficulty_type weight;
+    get_height_info(height() - 1, difficulty, weight, cumulative_difficulty, cumulative_weight);
+  }
+
+  /**
+   * @brief get block info from a given hash
+   *
+   * @param cumulative_difficulty return-by-reference block's cumulative difficulty
+   * @param cumulative_weight return-by-reference block's cumulative weight
+   */
+  virtual void get_block_info(const crypto::hash& h, difficulty_type& cumulative_difficulty, difficulty_type& cumulative_weight) const
+  {
+    difficulty_type difficulty;
+    difficulty_type weight;
+    get_height_info(h, difficulty, weight, cumulative_difficulty, cumulative_weight);
+  }
 
   /**
    * @brief check if a transaction with a given hash exists
@@ -1437,6 +1630,23 @@ public:
    * @return the requested output data
    */
   virtual output_data_t get_output_key(const uint64_t& amount, const uint64_t& index, bool include_commitmemt = true) const = 0;
+
+  /**
+   * @brief get some of an output's data
+   *
+   * The subclass should return the public key, unlock time, and block height
+   * for the output with the given global index, collected in a struct.
+   *
+   * If the output cannot be found, the subclass should throw OUTPUT_DNE.
+   *
+   * If any of these parts cannot be found, but some are, the subclass
+   * should throw DB_ERROR with a message stating as much.
+   *
+   * @param global_index the output's index (global)
+   *
+   * @return the requested output data
+   */
+  virtual output_data_t get_output_key(const uint64_t& global_index) const = 0;
 
   /**
    * @brief gets an output's tx hash and index

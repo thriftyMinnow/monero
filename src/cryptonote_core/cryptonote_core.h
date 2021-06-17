@@ -1,3 +1,4 @@
+// Copyright (c) 2019-2021, The Masari Project
 // Copyright (c) 2014-2020, The Monero Project
 //
 // All rights reserved.
@@ -408,6 +409,13 @@ namespace cryptonote
       */
      bool get_block_by_hash(const crypto::hash &h, block &blk, bool *orphan = NULL) const;
 
+      /**
+      * @copydoc fetch an uncle block from the DB
+      *
+      * @note returns false if block DNE
+      */
+      bool get_uncle_by_hash(const crypto::hash &h, block &uncle) const;
+
      /**
       * @copydoc Blockchain::get_alternative_blocks
       *
@@ -590,6 +598,16 @@ namespace cryptonote
       * @note see Blockchain::get_block_cumulative_difficulty
       */
      difficulty_type get_block_cumulative_difficulty(uint64_t height) const;
+     
+     /**
+      * @brief get a single block's weight
+      */
+     difficulty_type get_block_weight(uint64_t height) const;
+     
+     /**
+      * @brief get an uncle block's individual weight
+      */
+     difficulty_type get_uncle_weight(uint64_t height) const;
 
      /**
       * @copydoc Blockchain::get_outs
@@ -1021,6 +1039,18 @@ namespace cryptonote
      bool check_tx_inputs_keyimages_domain(const transaction& tx) const;
 
      /**
+      * @brief checks HardFork status and prints messages about it
+      *
+      * Checks the status of HardFork and logs/prints if an update to
+      * the daemon is necessary.
+      *
+      * @note see Blockchain::get_hard_fork_state and HardFork::State
+      *
+      * @return true
+      */
+     bool check_fork_time();
+
+     /**
       * @brief attempts to relay any transactions in the mempool which need it
       *
       * @return true
@@ -1068,6 +1098,7 @@ namespace cryptonote
 
      //m_miner and m_miner_addres are probably temporary here
      miner m_miner; //!< miner instance
+     account_public_address m_miner_address; //!< address to mine to (for miner instance)
 
      std::string m_config_folder; //!< folder to look in for configs and other files
 

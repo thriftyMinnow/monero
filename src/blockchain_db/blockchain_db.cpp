@@ -259,6 +259,7 @@ uint64_t BlockchainDB::add_block( const std::pair<block, blobdata>& blck
                                 , size_t block_weight
                                 , uint64_t long_term_block_weight
                                 , const difficulty_type& cumulative_difficulty
+                                , const difficulty_type& cumulative_weight
                                 , const uint64_t& coins_generated
                                 , const std::vector<std::pair<transaction, blobdata>>& txs
                                 )
@@ -367,6 +368,21 @@ block BlockchainDB::get_block_from_height(const uint64_t& height) const
   return b;
 }
 
+block BlockchainDB::get_uncle_from_height(const uint64_t& height) const
+{
+  return get_block_from_blob(get_uncle_blob_from_height(height), "uncle");
+}
+
+//block BlockchainDB::get_block_from_height(const uint64_t& height) const
+//{
+//  return get_block_from_blob(get_block_blob_from_height(height), "block");
+//}
+
+block BlockchainDB::get_uncle(const crypto::hash& h) const
+{
+  return get_block_from_blob(get_uncle_blob(h), "uncle");
+}
+
 block BlockchainDB::get_block(const crypto::hash& h) const
 {
   blobdata bd = get_block_blob(h);
@@ -386,6 +402,26 @@ bool BlockchainDB::get_tx(const crypto::hash& h, cryptonote::transaction &tx) co
     throw DB_ERROR("Failed to parse transaction from blob retrieved from the db");
 
   return true;
+}
+
+difficulty_type BlockchainDB::get_block_cumulative_weight(const crypto::hash& id) const
+{
+    return get_block_cumulative_weight(get_block_height(id));
+}
+
+difficulty_type BlockchainDB::get_block_cumulative_difficulty(const crypto::hash& id) const
+{
+    return get_block_cumulative_difficulty(get_block_height(id));
+}
+
+difficulty_type BlockchainDB::get_block_difficulty(const crypto::hash& id) const
+{
+  return get_block_difficulty(get_block_height(id));
+}
+
+difficulty_type BlockchainDB::get_uncle_difficulty(const crypto::hash& id) const
+{
+  return get_block_difficulty(get_uncle_height(id));
 }
 
 bool BlockchainDB::get_pruned_tx(const crypto::hash& h, cryptonote::transaction &tx) const
