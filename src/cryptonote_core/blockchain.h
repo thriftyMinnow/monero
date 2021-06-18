@@ -106,6 +106,7 @@ namespace cryptonote
       uint64_t height; //!< the height of the block in the blockchain
       uint64_t block_cumulative_weight; //!< the weight of the block
       difficulty_type cumulative_difficulty; //!< the accumulated difficulty after that block
+      difficulty_type cumulative_weight; //!< the accumulated weight after that block
       uint64_t already_generated_coins; //!< the total coins minted after that block
     };
 

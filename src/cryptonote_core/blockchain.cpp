@@ -1031,7 +1031,6 @@ difficulty_type Blockchain::get_difficulty_for_next_block()
 //    }
 //  }
 
-  CRITICAL_REGION_LOCAL(m_blockchain_lock);
   std::vector<uint64_t> timestamps;
   std::vector<difficulty_type> difficulties;
   auto height = m_db->height();
@@ -1331,8 +1330,6 @@ bool Blockchain::switch_to_alternative_blockchain(std::list<block_extended_info>
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
   CRITICAL_REGION_LOCAL(m_blockchain_lock);
-
-  MDEBUG("Switching to alternative blockchain with top block " << get_block_hash(alt_chain.back()->second.bl));
 
   m_timestamps_and_difficulties_height = 0;
   m_reset_timestamps_and_difficulties_height = true;
@@ -1705,7 +1702,7 @@ bool Blockchain::validate_uncle_block(const block& nephew, const block& uncle)
     return false;
   }
 
-  crypto::hash uncle_pow = get_block_longhash(uncle);
+  crypto::hash uncle_pow = get_block_hash(uncle);
   if(!check_hash(uncle_pow, uncleparent_diffic))
   {
     MERROR_VER("Uncle proof of work on difficulty " << uncleparent_diffic << " for height " << uncle_height << " is invalid");
@@ -2047,7 +2044,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
   diffic = get_difficulty_for_next_block();
   CHECK_AND_ASSERT_MES(diffic, false, "difficulty overhead.");
 
-  median_weight = m_current_block_cumul_sz_limit / 2;
+  median_weight = m_current_block_cumul_weight_limit / 2;
   already_generated_coins = m_db->get_block_already_generated_coins(height - 1);
 
   CRITICAL_REGION_END();
@@ -2362,7 +2359,8 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
     CHECK_AND_ASSERT_MES(current_diff, false, "!!!!!!! DIFFICULTY OVERHEAD !!!!!!!");
     crypto::hash proof_of_work;
     memset(proof_of_work.data, 0xff, sizeof(proof_of_work.data));
-    get_block_longhash(this, bei.bl, proof_of_work, bei.height, 0);
+    //get_block_longhash(this, bei.bl, proof_of_work, bei.height, 0);
+    get_block_hash(bei.bl, proof_of_work);
     if(!check_hash(proof_of_work, current_diff))
     {
       MERROR_VER("Block with id: " << id << std::endl << " for alternative chain, does not have enough proof of work: " << proof_of_work << std::endl << " expected difficulty: " << current_diff);
@@ -2393,7 +2391,7 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
       bei.cumulative_difficulty = m_db->get_block_cumulative_difficulty(m_db->get_block_height(b.prev_id));
     }
     bei.cumulative_difficulty += current_diff;
-    bei.block_cumulative_weight += current_diff;
+    //bei.cumulative_weight += current_diff;
 
 // NOTE: commenting out XMR 17 block
 //    bei.block_cumulative_weight = cryptonote::get_transaction_weight(b.miner_tx);
@@ -2477,7 +2475,7 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
         bvc.m_verifivation_failed = true;
         return false;
       }
-      bei.block_cumulative_weight += uncle_diffic;
+      bei.cumulative_difficulty += uncle_diffic;
     }
 
     // add block to alternate blocks storage,
@@ -2509,7 +2507,7 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
     {
       //do reorganize!
       // XMR v17:  MGINFO_GREEN("###### REORGANIZE on height: " << alt_chain.front().height << " of " << m_db->height() - 1 << " with cum_difficulty " << m_db->get_block_cumulative_difficulty(m_db->height() - 1) << std::endl << " alternative blockchain size: " << alt_chain.size() << " with cum_difficulty " << bei.cumulative_difficulty);
-      MGINFO_GREEN("###### REORGANIZE ######" << std::endl << "from main " << m_db->top_block_hash() << " at height: " << m_db->height() - 1 << std::endl << "to alt " << get_block_hash(bei.bl) << " at height " << alt_chain.front()->second.height << std::endl << "main cumulative_difficulty:\t" <<  main_chain_cumulative_difficulty << std::endl << "main cumulative_weight:\t" << main_chain_cumulative_weight<< std::endl << "alt cumulative_difficulty:\t" << bei.cumulative_difficulty << std::endl << "alt cumulative_weight:\t" << bei.cumulative_weight << std::endl << "alt blockchain size:\t" << alt_chain.size());
+      MGINFO_GREEN("###### REORGANIZE ######" << std::endl << "from main " << m_db->top_block_hash() << " at height: " << m_db->height() - 1 << std::endl << "to alt " << get_block_hash(bei.bl) << " at height " << alt_chain.front().height << std::endl << "main cumulative_difficulty:\t" <<  main_chain_cumulative_difficulty << std::endl << "alt cumulative_difficulty:\t" << bei.cumulative_difficulty << std::endl << "alt cumulative_weight:\t" << bei.cumulative_weight << std::endl << "alt blockchain size:\t" << alt_chain.size());
 
       bool r = switch_to_alternative_blockchain(alt_chain, false);
       if (r)
@@ -2645,7 +2643,7 @@ bool Blockchain::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NO
       e.txs.push_back(tx);
   }
   //get another transactions, if need
-  std::list<cryptonote::blobdata> txs;
+  std::vector<cryptonote::blobdata> txs;
   get_transactions_blobs(arg.txs, txs, rsp.missed_ids);
   //pack aside transactions
   for (const auto& tx: txs)
@@ -3262,14 +3260,12 @@ bool Blockchain::find_blockchain_supplement(const std::list<crypto::hash>& qbloc
 
   bool result = find_blockchain_supplement(qblock_ids, resp.m_block_ids, &resp.m_block_weights, resp.start_height, resp.total_height, clip_pruned);
   
-  // NOTE: using Masari method to get difficulty; comment out XMR v17 difficulty code here
-  resp.cumulative_difficulty = m_db->get_block_cumulative_difficulty(m_db->height() - 1);
-  //if (result)
-  //{
-  //  cryptonote::difficulty_type wide_cumulative_difficulty = m_db->get_block_cumulative_difficulty(resp.total_height - 1);
-  //  resp.cumulative_difficulty = (wide_cumulative_difficulty & 0xffffffffffffffff).convert_to<uint64_t>();
-  //  resp.cumulative_difficulty_top64 = ((wide_cumulative_difficulty >> 64) & 0xffffffffffffffff).convert_to<uint64_t>();
-  //}
+  if (result)
+  {
+    cryptonote::difficulty_type wide_cumulative_difficulty = m_db->get_block_cumulative_difficulty(resp.total_height - 1);
+    resp.cumulative_difficulty = (wide_cumulative_difficulty & 0xffffffffffffffff).convert_to<uint64_t>();
+    resp.cumulative_difficulty_top64 = ((wide_cumulative_difficulty >> 64) & 0xffffffffffffffff).convert_to<uint64_t>();
+  }
 
   return result;
 }
@@ -4591,7 +4587,8 @@ leave:
       proof_of_work = it->second;
     }
     else
-      proof_of_work = get_block_longhash(this, bl, blockchain_height, 0);
+      //proof_of_work = get_block_hash(bl, blockchain_height);
+      proof_of_work = get_block_hash(bl);
 
     // validate proof_of_work versus difficulty target
     if(!check_hash(proof_of_work, current_diffic))
@@ -4777,8 +4774,6 @@ leave:
   }
 
   TIME_MEASURE_FINISH(vmt);
-  size_t block_weight;
-  difficulty_type cumulative_difficulty;
 
   // populate various metadata about the block to be stored alongside it.
   size_t block_weight = cumulative_block_weight;
@@ -4902,7 +4897,7 @@ leave:
 
   uint64_t uncle_reward = uncle_included ? bl.miner_tx.vout[1].amount : 0;
 
-  MINFO("+++++ BLOCK SUCCESSFULLY ADDED" << std::endl << "id:\t" << id << std::endl << "prev:\t" << bl.prev_id << std::endl << "PoW:\t" << proof_of_work << std::endl << "height:\t" << new_height-1 << std::endl << "version:\t" << std::to_string(bl.major_version) << std::endl << "difficulty:\t" << current_diffic << std::endl << "weight:\t" << current_diffic + uncle_diffic << std::endl << "cumulative_difficulty:\t" << cumulative_difficulty << std::endl << "cumulative_weight:\t" << cumulative_weight << std::endl << "block reward:\t" << print_money(get_outs_money_amount(bl.miner_tx)) << "(" << print_money(base_reward) << " + " << print_money(fee_summary) << " + " << print_money(bl.miner_tx.vout[0].amount - base_reward - fee_summary) /* nephew reward */ << " + " << print_money(uncle_reward) /* uncle reward */ << ")" << std::endl << "coinbase_blob_size: " << coinbase_blob_size << ", cumulative size: " << cumulative_block_size << ", " << block_processing_time << "(" << target_calculating_time << "/" << longhash_calculating_time << ")ms" << std::endl << "uncle:\t" << bl.uncle);
+  MINFO("+++++ BLOCK SUCCESSFULLY ADDED" << std::endl << "id:\t" << id << std::endl << "prev:\t" << bl.prev_id << std::endl << "PoW:\t" << proof_of_work << std::endl << "height:\t" << new_height-1 << std::endl << "version:\t" << std::to_string(bl.major_version) << std::endl << "difficulty:\t" << current_diffic << std::endl << "weight:\t" << current_diffic + uncle_diffic << std::endl << "cumulative_difficulty:\t" << cumulative_difficulty << std::endl << "cumulative_weight:\t" << cumulative_weight << std::endl << "block reward:\t" << print_money(get_outs_money_amount(bl.miner_tx)) << "(" << print_money(base_reward) << " + " << print_money(fee_summary) << " + " << print_money(bl.miner_tx.vout[0].amount - base_reward - fee_summary) /* nephew reward */ << " + " << print_money(uncle_reward) /* uncle reward */ << ")" << std::endl << ", " << block_processing_time << "(" << target_calculating_time << "/" << longhash_calculating_time << ")ms" << std::endl << "uncle:\t" << bl.uncle);
   if(m_show_time_stats)
   {
     MINFO("Height: " << new_height << " coinbase weight: " << coinbase_weight << " cumm: "
@@ -5205,7 +5200,11 @@ void Blockchain::block_longhash_worker(uint64_t height, const epee::span<const b
     if (m_cancel)
        break;
     crypto::hash id = get_block_hash(block);
-    crypto::hash pow = get_block_longhash(this, block, height++, 0);
+//  HELP!  this was a call to get_block_longhash, which doesn't exist in XMR v17
+//         replacing with call to get_block_hash means id and pow are the same???
+//    crypto::hash pow = get_block_hash(block, height++);
+    crypto::hash pow = get_block_hash(block);
+
     map.emplace(id, pow);
   }
 
