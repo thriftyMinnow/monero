@@ -4831,10 +4831,13 @@ leave:
   // coins will eventually exceed MONEY_SUPPLY and overflow a uint64. To prevent overflow, cap already_generated_coins
   // at MONEY_SUPPLY. already_generated_coins is only used to compute the block subsidy and MONEY_SUPPLY yields a
   // subsidy of 0 under the base formula and therefore the minimum subsidy >0 in the tail state.
+
   already_generated_coins = base_reward < (MONEY_SUPPLY-already_generated_coins) ? already_generated_coins + base_reward : MONEY_SUPPLY;
-  if(blockchain_height)
+
+  //if(blockchain_height) // replaced with Masari block here, for cumulative_weight
+    // cumulative_difficulty += m_db->get_block_cumulative_difficulty(blockchain_height - 1);
+  if(m_db->height())
   {
-    // cumulative_difficulty += m_db->get_block_cumulative_difficulty(blockchain_height - 1); // replaced with Masari block here
     difficulty_type prev_cumulative_difficulty;
     difficulty_type prev_cumulative_weight;
     m_db->top_height_info(prev_cumulative_difficulty, prev_cumulative_weight);
@@ -4856,7 +4859,7 @@ leave:
     {
       uint64_t long_term_block_weight = get_next_long_term_block_weight(block_weight);
       cryptonote::blobdata bd = cryptonote::block_to_blob(bl);
-      new_height = m_db->add_block(std::make_pair(std::move(bl), std::move(bd)), block_weight, long_term_block_weight, cumulative_difficulty, already_generated_coins, txs);
+      new_height = m_db->add_block(std::make_pair(std::move(bl), std::move(bd)), block_weight, long_term_block_weight, cumulative_difficulty, cumulative_weight, already_generated_coins, txs);
       if (uncle_included) {
         uint64_t uncle_size = cryptonote::t_serializable_object_to_blob(uncle).size();
         m_db->add_uncle(uncle, uncle_size, uncle_cumulative_difficulty, uncle_cumulative_weight, already_generated_coins, get_block_hash(uncle), new_height - 2);
