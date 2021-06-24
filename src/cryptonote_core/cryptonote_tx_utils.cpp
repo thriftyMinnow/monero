@@ -102,7 +102,7 @@ namespace cryptonote
 
     uint64_t block_reward = 0;
     uint64_t base_reward;
-    if(!get_block_reward(median_size, current_block_size, already_generated_coins, base_reward, hard_fork_version))
+    if(!get_block_reward(median_weight, current_block_weight, already_generated_coins, base_reward, hard_fork_version))
     {
       LOG_PRINT_L0("Block is too big");
       return false;
@@ -135,23 +135,16 @@ namespace cryptonote
     if(!extra_nonce.empty())
       if(!add_extra_nonce_to_tx_extra(tx.extra, extra_nonce))
         return false;
-    if (!sort_tx_extra(tx.extra, tx.extra))
-      return false;
-
-    txin_gen in;
-    in.height = height;
-
-    uint64_t block_reward;
-    if(!get_block_reward(median_weight, current_block_weight, already_generated_coins, block_reward, hard_fork_version))
-    {
-      LOG_PRINT_L0("Block is too big");
-      return false;
-    }
+// NOTE: this check was not in the Masari code, so commenting out for now
+//    if (!sort_tx_extra(tx.extra, tx.extra))
+//      return false;
 
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
-    LOG_PRINT_L1("Creating block template: reward " << block_reward <<
+    LOG_PRINT_L1("Creating block template: reward " << base_reward <<
       ", fee " << fee);
 #endif
+
+    block_reward += base_reward;
     block_reward += fee;
 
     crypto::key_derivation derivation = AUTO_VAL_INIT(derivation);;
@@ -159,7 +152,7 @@ namespace cryptonote
     bool r = crypto::generate_key_derivation(miner_address.m_view_public_key, txkey.sec, derivation);
     CHECK_AND_ASSERT_MES(r, false, "while creating outs: failed to generate_key_derivation(" << miner_address.m_view_public_key << ", " << txkey.sec << ")");
 
-    r = crypto::derive_public_key(derivation, 0, miner_address.m_spend_public_key, out_eph_public_key);
+    r = crypto::derive_public_key(derivation, miner_index, miner_address.m_spend_public_key, out_eph_public_key);
     CHECK_AND_ASSERT_MES(r, false, "while creating outs: failed to derive_public_key(" << derivation << ", " << miner_address.m_spend_public_key << ")");
 
     txout_to_key tk;
